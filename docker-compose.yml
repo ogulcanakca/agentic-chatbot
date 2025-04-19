@@ -1,0 +1,28 @@
+# docker-compose.yml
+
+version: '3.8' 
+
+services:
+  chatbot-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentic_chatbot_container
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - chroma_data:/app/data/embeddings
+      - processed_data:/app/data/processed
+      - raw_data:/app/data/raw
+      - hf_cache:/app/.cache/huggingface
+    environment:
+      - STREAMLIT_BROWSER_SERVER_ADDRESS=localhost
+volumes:
+  chroma_data: {}
+  hf_cache: {}
+  raw_data: {}
+  processed_data: {}
+
+  
