@@ -184,15 +184,52 @@ class TravelPlanningSystem:
     def build_graph(self) -> Runnable:
         logging.info("LangGraph workflow'u oluşturuluyor (ASENKRON node'lar, Checkpointer İLE)...")
         workflow = StateGraph(TravelPlanState)
+        
         # Node eklemeleri (ASENKRON fonksiyonlarla)
-        workflow.add_node("parse_request", self.parse_request_node); workflow.add_node("calculate_dates", self.calculate_dates_node); workflow.add_node("process_date_budget", self.process_date_budget_node); workflow.add_node("process_destination", self.process_destination_node); workflow.add_node("compile_final_plan", self.compile_final_plan_node)
-        # Kenar eklemeleri (aynı)
-        workflow.set_entry_point("parse_request"); workflow.add_conditional_edges(...); workflow.add_conditional_edges(...); workflow.add_edge(...); workflow.add_edge(...); workflow.add_edge(...)
+        workflow.add_node("parse_request", self.parse_request_node)
+        workflow.add_node("calculate_dates", self.calculate_dates_node)
+        workflow.add_node("process_date_budget", self.process_date_budget_node)
+        workflow.add_node("process_destination", self.process_destination_node)
+        workflow.add_node("compile_final_plan", self.compile_final_plan_node)
         
-        # Checkpointer'ı ekle (Project 2'deki orijinal hali gibi)
-        app = workflow.compile(checkpointer=MemorySaver()) 
+        workflow.set_entry_point("parse_request")
+
+        # --- Koşullu Kenarları DÜZELT (start_node= OLMADAN) ---
+        workflow.add_conditional_edges(
+            "parse_request",             # Başlangıç node'u (konumsal argüman)
+            path=self.decide_after_parsing,  # path= keyword'ü ile fonksiyon
+            path_map={                   # path_map= keyword'ü ile dictionary
+                "calculate_dates": "calculate_dates",
+                "compile_final_plan": "compile_final_plan", 
+            }
+        )
+        workflow.add_conditional_edges(
+            "calculate_dates",           # Başlangıç node'u (konumsal argüman)
+            path=self.decide_after_dates,    # path= keyword'ü ile fonksiyon
+            path_map={                   # path_map= keyword'ü ile dictionary
+                "process_date_budget": "process_date_budget",
+                "compile_final_plan": "compile_final_plan",
+            }
+        )
+        # --- ---
+
+        # Direkt kenarlar aynı
+        workflow.add_edge("process_date_budget", "process_destination")
+        workflow.add_edge("process_destination", "compile_final_plan")
+        workflow.add_edge("compile_final_plan", END)
         
-        logging.info("LangGraph workflow başarıyla derlendi (Travel System - Checkpointer ile).")
+        # Checkpointer'ı ekle
+        try:
+            from langgraph.checkpoint.memory import MemorySaver 
+            app = workflow.compile(checkpointer=MemorySaver()) 
+            logging.info("LangGraph workflow başarıyla derlendi (Travel System - Checkpointer ile).")
+        except ImportError:
+             logging.error("MemorySaver import edilemedi! Checkpointing olmadan devam edilemiyor.")
+             raise 
+        # except TypeError: # Eğer hala TypeError verirse, bu bloğu tekrar aktif edebilirsiniz
+        #      logging.warning("Travel system compile checkpointer ile TypeError verdi, checkpointer olmadan deneniyor.")
+        #      app = workflow.compile()
+
         return app
 
     # Ana çağrı metodu (ASENKRON)
