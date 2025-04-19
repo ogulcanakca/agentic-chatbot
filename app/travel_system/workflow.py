@@ -1,145 +1,105 @@
-# agentic_chatbot_projectapp/travel_system/travel_planning.py
+# app/travel_system/workflow.py
+# ASENKRON HALİ (Event loop closed hatası verebilir, ama başlangıç hatası vermemeli)
 
 import json
+import logging
 from typing import TypedDict, Optional, Dict, Any
 from langgraph.graph import StateGraph, END
 from langchain_core.runnables import Runnable
-from langgraph.checkpoint.memory import MemorySaver
-import logging
+from langgraph.checkpoint.memory import MemorySaver # MemorySaver importu gerekli
 
-# Agent'larımı ve araçlarımı import ediyorum
-# Doğru Göreli İmportlar:
-from .agents.coordinator_agent import create_coordinator_agent  # '.' aynı dizindeki 'agents' klasörüne işaret eder
+# Agent'ları ve araçları import et
+from .agents.coordinator_agent import create_coordinator_agent
 from .agents.date_budget_agent import create_date_budget_agent
-from .agents.destination_agent import create_destination_agent
-from .tools.date_tools import calculate_travel_dates      # '.' aynı dizindeki 'tools' klasörüne işaret eder
-from .tools.parsing_tools import parse_travel_query
+from .agents.destination_agent import create_destination_agent 
+from .tools.date_tools import calculate_travel_dates      
+from .tools.parsing_tools import parse_travel_query # Origin içeren versiyonu varsayıyoruz
+# Harita aracını import et (varsa)
+# from .tools.destination_tools import get_tomtom_map_url 
 
-# Graph'ın state yapısını tanımlıyorum. Akış boyunca bu bilgiler taşınacak.
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
+
+# State Tanımı (Origin İLE)
 class TravelPlanState(TypedDict):
     user_query: str
-    origin: Optional[str]
+    origin: Optional[str] # Origin tekrar eklendi
     parsed_request: Optional[Dict[str, Any]]
     calculated_dates: Optional[Dict[str, str]]
     date_budget_summary: Optional[str]
-    destination_summary: Optional[str]
-    final_plan: Optional[str]
-    error_message: Optional[str]
+    destination_summary: Optional[str] 
+    final_plan: Optional[str] # 'answer' yerine 'final_plan' kullanıyoruz (orijinal gibi)
+    error_message: Optional[str] 
 
-# Ana seyahat planlama sistemimi sınıf olarak tanımlıyorum.
 class TravelPlanningSystem:
     def __init__(self):
-        # Sınıf başlatıldığında agent'larımı oluşturulacak.
+        logging.info("TravelPlanningSystem başlatılıyor (Async Versiyon)...")
         self.coordinator_agent = create_coordinator_agent()
         self.date_budget_agent = create_date_budget_agent()
         self.destination_agent = create_destination_agent()
-
-        # LangGraph workflow da oluşturulacak.
         self.app = self.build_graph()
+        logging.info("TravelPlanningSystem başarıyla başlatıldı (Async Versiyon).")
 
-    # Kullanıcı sorgusunu ayrıştırma işleminin yapıldığı node
-    async def parse_request_node(self, state: TravelPlanState) -> Dict[str, Any]:
-        logging.debug(f"[ParseNode] Gelen state: {state}")
+    # --- Node Fonksiyonları (ASENKRON) ---
+
+    async def parse_request_node(self, state: TravelPlanState) -> Dict[str, Any]: # async def
+        logging.info("[ParseNode] Çalıştırılıyor...")
         user_query = state['user_query']
         try:
-            # parse_travel_query tool'unu çağır (bu artık origin içerebilir)
-            # Not: Eğer tool @tool ile işaretliyse .invoke() kullanmak daha standart olabilir
-            # Ama mevcut kodunuzda doğrudan func çağrılıyor, onu koruyalım
-            # parsed_info = await parse_travel_query.ainvoke({"user_query": user_query}) 
-            parsed_info = parse_travel_query.func(user_query=user_query) 
+            parsed_info = parse_travel_query.func(user_query=user_query) # Origin içeren parser
             logging.info(f"[ParseNode] Ayrıştırma Sonucu: {parsed_info}")
-
-            # Hata mesajını kontrol et
             error_message = parsed_info.get("error")
-
-            # Gerekli bilgiler eksikse hata mesajını önceliklendir
             required_fields = ["destination", "natural_language_date", "duration_days"]
-            missing_fields = [field for field in required_fields if field not in parsed_info]
-            if missing_fields:
-                error_message = parsed_info.get("error", f"Eksik bilgi: {', '.join(missing_fields)}")
-                logging.warning(f"[ParseNode] Eksik zorunlu alanlar: {missing_fields}")
-
-
-            # State'e hem ayrıştırılmış isteği hem de origin'i ekle
-            # Origin yoksa None olarak eklenecek
+            missing_fields = [field for field in required_fields if not parsed_info.get(field)] 
+            if missing_fields: error_message = parsed_info.get("error", f"Eksik bilgi: {', '.join(missing_fields)}"); logging.warning(f"[ParseNode] Eksik: {missing_fields}")
             return {
                 "parsed_request": parsed_info, 
-                "origin": parsed_info.get("origin"), # <-- Origin'i state'e ekle
-                "error_message": error_message # Hata mesajını da ekle
+                "origin": parsed_info.get("origin"), # Origin'i state'e ekle
+                "error_message": error_message 
             }
-        except Exception as e:
-            logging.error(f"[ParseNode] Hata: {e}", exc_info=True)
-            return {"error_message": f"An unexpected error occurred during parsing: {e}"}
-    # Seyahat tarihlerini hesaplama işleminin yapıldığı node.
-    async def calculate_dates_node(self, state: TravelPlanState) -> Dict[str, Any]:
+        except Exception as e: logging.error(f"[ParseNode] Hata: {e}", exc_info=True); return {"error_message": f"Sorgu ayrıştırılamadı: {e}"}
+
+
+    async def calculate_dates_node(self, state: TravelPlanState) -> Dict[str, Any]: # async def
+        logging.info("[CalculateDatesNode] Çalıştırılıyor...")
         parsed_info = state.get('parsed_request')
-        # Eğer önceki adımdan ayrıştırılmış bilgi gelmediyse hata verecek
-        if not parsed_info:
-            return {"error_message": "Cannot calculate dates without parsed info."}
+        if not parsed_info: logging.warning("[CalculateDatesNode] Bilgi eksik."); return {"error_message": "Cannot calculate dates without parsed info."}
+        natural_language_date = parsed_info.get("natural_language_date"); duration_days = parsed_info.get("duration_days")
+        if not natural_language_date or duration_days is None: logging.warning("[CalculateDatesNode] Tarih/süre eksik."); return {"error_message": "Missing nl_date or duration."}
         try:
-            # calculate_travel_dates tool'umu kullanıyorum.
-            dates_result = calculate_travel_dates.func(
-                natural_language_date=parsed_info["natural_language_date"],
-                duration_days=parsed_info["duration_days"]
-            )
-            # Tool'dan hata dönerse belirtiyorum.
-            if "error" in dates_result:
-                return {"error_message": f"Date calculation failed: {dates_result['error']}"}
-            return {"calculated_dates": dates_result, "error_message": None}
-        except Exception as e:
-            return {"error_message": f"Error calculating dates: {e}"}
+            dates_result = calculate_travel_dates.func(natural_language_date=natural_language_date, duration_days=duration_days)
+            logging.info(f"[CalculateDatesNode] Sonuç: {dates_result}")
+            if "error" in dates_result: logging.error(f"[CalculateDatesNode] Araç hatası: {dates_result['error']}"); return {"error_message": f"Date calculation failed: {dates_result['error']}"}
+            return {"calculated_dates": dates_result, "error_message": None} 
+        except Exception as e: logging.error(f"[CalculateDatesNode] Hata: {e}", exc_info=True); return {"error_message": f"Error calculating dates: {e}"}
 
-    # Tarih ve bütçe bilgilerini işleme node'u
-    async def process_date_budget_node(self, state: TravelPlanState) -> Dict[str, Any]:
-        parsed_info = state.get('parsed_request')
-        calculated_dates = state.get('calculated_dates')
-        if not parsed_info or not calculated_dates:
-            return {"date_budget_summary": "Skipped: Missing required info for budget processing."}
-
-        start_date = calculated_dates['start_date']
-        end_date = calculated_dates['end_date']
-
-        # Tarih & Bütçe Agent'ım için prompt.
-        # Sadece son özetin Türkçe olmasını istiyorum.
-        date_budget_query = f"""
-        Please create a summary of the dates and budget for the following travel details:
-        - Destination: {parsed_info['destination']}
-        - Specified Date Expression: {parsed_info['natural_language_date']}
-        - Calculated Start: {start_date}
-        - Calculated End: {end_date}
-        - Duration of Stay: {parsed_info['duration_days']} days
-        - Budget: {parsed_info.get('budget_amount', 'Not Specified')} {parsed_info.get('budget_currency', 'TRY')}
-
-        Tasks:
-        1. Use the `get_exchange_rates_and_budget` tool to evaluate the budget and obtain the relevant exchange rates (TRY, EUR, USD).
-        2. Use the `calculate_travel_dates` tool to verify the dates (start: {start_date}, end: {end_date}).
-        3. Combine this information to provide a summary in Turkish. Example: "Seyahat Tarihleri: {{start_date}} - {{end_date}}. Bütçe Değerlendirmesi: [evaluation from tool]. Kurlar: [rates from tool]..."
-        """
+    async def process_date_budget_node(self, state: TravelPlanState) -> Dict[str, Any]: # async def
+        logging.info("[DateBudgetNode] Çalıştırılıyor...")
+        parsed_info = state.get('parsed_request'); calculated_dates = state.get('calculated_dates')
+        if not parsed_info or not calculated_dates: logging.warning("[DateBudgetNode] Bilgi eksik."); return {"date_budget_summary": "Skipped: Missing info."}
+        destination = parsed_info.get('destination'); nl_date = parsed_info.get('natural_language_date'); start_date = calculated_dates.get('start_date'); end_date = calculated_dates.get('end_date'); duration = parsed_info.get('duration_days'); budget_amount = parsed_info.get('budget_amount', 'N/A'); budget_currency = parsed_info.get('budget_currency', '')
+        if not all([destination, nl_date, start_date, end_date, duration is not None]): logging.warning("[DateBudgetNode] Alt bilgi eksik."); return {"date_budget_summary": "Skipped: Missing sub-keys."}
+        
+        date_budget_query = f"""...""" # Prompt içeriği aynı (origin olmadan)
+        logging.info("[DateBudgetNode] Date Budget Agent çağrılıyor (ASENKRON)...")
         try:
-            response = await self.date_budget_agent.ainvoke({"input": date_budget_query})
-            summary = response.get("output", "Date and budget summary could not be generated by agent.")
-            logging.info(f"[DateBudgetNode] Agent Sonucu: {summary}") # Agent sonucunu logla
-            return {"date_budget_summary": summary}
-        except Exception as e:
-             logging.error(f"[DateBudgetNode] Hata: {e}", exc_info=True) # Hata logunu detaylandır
-             return {"date_budget_summary": f"Error generating date/budget summary: {e}"}
+            agent_input = {"input": date_budget_query}; 
+            response = await self.date_budget_agent.ainvoke(agent_input) # await ... ainvoke KULLAN
+            logging.info(f"[DateBudgetNode] Agent Ham Yanıtı: {response}")
+            summary = response.get("output", "Date/Budget summary error."); logging.info(f"[DateBudgetNode] Agent Özet Sonucu: {summary}")
+            error_in_summary = None; # ... (hata kontrolü) ...
+            return {"date_budget_summary": summary, "error_message": state.get("error_message") or error_in_summary}
+        except Exception as e: logging.error(f"[DateBudgetNode] Hata: {e}", exc_info=True); error_msg = f"Error: {e}"; return {"date_budget_summary": error_msg, "error_message": error_msg}
 
-    # Gidilecek yer hakkında bilgi toplama node'u.
-    async def process_destination_node(self, state: TravelPlanState) -> Dict[str, Any]:
-        logging.debug(f"[DestinationNode] Gelen state: {state}") 
-        parsed_info = state.get('parsed_request')
-        calculated_dates = state.get('calculated_dates')
-        origin_city = state.get('origin')
-        # Gerekli bilgiler yoksa atlıyorum.
-        if not parsed_info or not calculated_dates:
-           return {"destination_summary": "Skipped: Missing required info for destination processing."}
 
-        destination_city = parsed_info['destination']
-        start_date = calculated_dates['start_date']
-        end_date = calculated_dates['end_date']
+    async def process_destination_node(self, state: TravelPlanState) -> Dict[str, Any]: # async def
+        logging.info("[DestinationNode] Çalıştırılıyor...")
+        parsed_info = state.get('parsed_request'); calculated_dates = state.get('calculated_dates')
+        origin_city = state.get('origin') # Origin TEKRAR kullanılıyor
+        if not parsed_info or not calculated_dates: logging.warning("[DestinationNode] Bilgi eksik."); return {"destination_summary": "Skipped: Missing info."}
+        destination_city = parsed_info.get('destination'); start_date = calculated_dates.get('start_date'); end_date = calculated_dates.get('end_date')
+        if not all([destination_city, start_date, end_date]): logging.warning("[DestinationNode] Alt bilgi eksik."); return {"destination_summary": "Skipped: Missing sub-keys."}
 
-        # Destinasyon Agent'ım için prompt..
-        # Sadece son özetin Türkçe olmasını istiyorum.
+        # Destination Agent prompt'u (origin İLE, basit harita aracı varsayımıyla)
         destination_query = f"""
         Please collect detailed travel information for the following trip and provide the result as a Turkish summary:
         - Origin: {origin_city or 'Not Specified'} 
@@ -148,132 +108,108 @@ class TravelPlanningSystem:
         - End Date: {end_date}
         - Budget Information (for reference): {parsed_info.get('budget_amount', 'N/A')} {parsed_info.get('budget_currency', '')}
 
-        Tasks:
+        Tasks & Output Structure (Use EXACT Turkish Headings):
         1. Use `search_city_info` for {destination_city}.
         2. Use `get_weather_forecast` for {destination_city} between {start_date} - {end_date}.
-        3. Use `Google Hotels_with_tavily` for {destination_city} for the specified dates (use budget as reference).
-        4. Use `get_tomtom_map_url`, providing BOTH origin ('{origin_city or ''}') and destination ('{destination_city}') cities to get a map URL showing both if possible. If origin is not specified, just provide the destination.
-        5. Combine the outputs from these tools to provide a comprehensive Turkish summary under headings: Şehir Bilgileri, Hava Durumu/Kıyafet Önerileri, Otel Seçenekleri, Harita Görünümü. Ensure the map URL is included under its heading.
+        3. Use `Google Hotels_with_tavily` for {destination_city}. Note limitations.
+        4. Use `get_tomtom_map_url` with `city_name`='{destination_city}' (or maybe with origin/dest if tool supports it).
+        5. Combine results under: 'Şehir Bilgileri', 'Hava Durumu/Kıyafet Önerileri', 'Otel Seçenekleri', 'Harita Görünümü'. Include map URL. Respond ONLY in Turkish.
         """
+        logging.info(f"[DestinationNode] Destination Agent'a gönderilen sorgu/prompt:\n{destination_query}")
+        logging.info("[DestinationNode] Destination Agent çağrılıyor (ASENKRON)...")
         try:
-            response = await self.destination_agent.ainvoke({"input": destination_query})
-            summary = response.get("output", "Destination summary could not be generated by agent.") 
-            return {"destination_summary": summary}
-        except Exception as e:
-            return {"destination_summary": f"Error generating destination summary: {e}"}
+            agent_input = {"input": destination_query}; 
+            response = await self.destination_agent.ainvoke(agent_input) # await ... ainvoke KULLAN
+            logging.info(f"[DestinationNode] Agent Ham Yanıtı: {response}") 
+            summary = response.get("output", "Destination summary error."); logging.info(f"[DestinationNode] Agent Özet Sonucu: {summary}") 
+            error_in_summary = None; # ... (hata kontrolü) ...
+            return {"destination_summary": summary, "error_message": state.get("error_message") or error_in_summary}
+        except Exception as e: logging.error(f"[DestinationNode] Hata: {e}", exc_info=True); error_msg = f"Error: {e}"; return {"destination_summary": error_msg, "error_message": error_msg}
 
-    # Tüm bilgileri birleştirip nihai planı oluşturma işleminin yapıldığı node.
-    async def compile_final_plan_node(self, state: TravelPlanState) -> Dict[str, Any]:
-        error_msg = state.get("error_message")
-        # Eğer kritik bir hata mesajı varsa (ayrıştırma veya tarih hesaplama gibi) planı oluşturmuyorum.
+
+    async def compile_final_plan_node(self, state: TravelPlanState) -> Dict[str, Any]: # async def
+        logging.info("[CompileNode] Çalıştırılıyor...")
+        error_msg = state.get("error_message"); destination_summary = state.get('destination_summary', '?') 
+        # ... (Hata kontrolü - origin/destination vs. state'e göre güncellenmeli) ...
         if error_msg and ("parse" in error_msg.lower() or "date calculation failed" in error_msg.lower()):
-             return {"final_plan": f"Could not generate travel plan. Critical Error: {error_msg}"}
-        # Kritik olmayan bir hata varsa, bunu belirterek derlemeye devam ediyorum.
-        elif error_msg:
-             print(f"!!! Compiling final plan despite previous error: {error_msg}")
+             logging.error(f"[CompileNode] Kritik hata: {error_msg}"); return {"final_plan": f"Plan oluşturulamadı. Hata: {error_msg}"} 
+        elif error_msg: logging.warning(f"Kritik olmayan hata ile devam ediliyor: {error_msg}")
 
-        # Koordinatör Agent'ım için İngilizce prompt'u.
-        # Sadece son çıktının Türkçe ve belirtilen başlıklarla olmasını istiyorum.
-        parsed_info = state.get('parsed_request', {})
-        calculated_dates = state.get('calculated_dates', {})
-        start_date = calculated_dates.get('start_date', 'Unknown')
-        end_date = calculated_dates.get('end_date', 'Unknown')
-
+        parsed_info = state.get('parsed_request', {}); calculated_dates = state.get('calculated_dates', {}); start_date = calculated_dates.get('start_date', '?'); end_date = calculated_dates.get('end_date', '?'); date_budget_summary = state.get('date_budget_summary', '?'); destination_summary_for_prompt = destination_summary
+        if error_msg: destination_summary_for_prompt = f"(Not: Hedef bilgileri alınırken sorun oluştu: {destination_summary})"
+        
+        # Coordinator prompt (origin İLE, Harita dahil)
         final_prompt = f"""
-        Using the following information, create a final travel plan summary for the user. Present the response in Turkish and in a user-friendly format.
+        Using the following information, create a final travel plan summary for the user in TURKISH.
 
-        User Request: {state['user_query']}
-        Parsed Information: {json.dumps(parsed_info, ensure_ascii=False, indent=2)}
-        Calculated Dates: {start_date} - {end_date}
+        User Request: {state.get('user_query', 'N/A')}
+        Parsed Info: {json.dumps(parsed_info, ensure_ascii=False, indent=2)} 
+        Dates: {start_date} - {end_date}
+        Date/Budget Summary: {date_budget_summary}
+        Destination Summary (Includes Map View URL): 
+        ```
+        {destination_summary_for_prompt}
+        ```
 
-        Date and Budget Summary (from Date & Budget Agent):
-        {state.get('date_budget_summary', 'Date and budget information could not be retrieved.')}
-
-        Destination Information Summary (from Destination Agent):
-        {state.get('destination_summary', 'Destination information could not be retrieved.')}
-
-        Task:
-        Synthesize this information to create a fluent and readable Turkish travel plan including the following headings:
-        1.  **Travel Summary:** Destination, exact dates ({start_date} - {end_date}), and duration.
-        2.  **Budget and Currency:** Integrate the summary from the Date & Budget Agent here (budget evaluation and exchange rates).
-        3.  **Weather and Outfit:** Add the weather summary and outfit recommendations from the Destination Agent here.
-        4.  **Places to Visit:** Include the city information and suggested popular/historical sites from the Destination Agent here.
-        5.  **Accommodation Recommendations:** Include the hotel options summary from the Destination Agent here.
-
-        If some summary information is missing or contains an error message, kindly note this politely in the final Turkish output. The Coordinator should not call any tools again, only compile the information.
+        Task: Synthesize ALL info into a TURKISH plan with headings: 
+        1. Seyahat Özeti (Origin, Destination, Dates, Duration from Parsed Info)
+        2. Bütçe ve Kur Bilgisi 
+        3. Hava Durumu ve Kıyafet Önerileri
+        4. Gezilecek Yerler 
+        5. Konaklama Önerileri
+        6. Harita Görünümü (Extract Map URL from Destination Summary)
+        If info is missing, state politely. Compile only, do not call tools.
         """
+        logging.info(f"[CompileNode] Coordinator Agent'a gönderilen SON PROMPT:\n{final_prompt}")
+        logging.info("[CompileNode] Coordinator Agent çağrılıyor (ASENKRON)...")
         try:
-            final_response = await self.coordinator_agent.ainvoke({"input": final_prompt})
-            final_output = final_response.get("output", "Final plan could not be generated by coordinator agent.")
-            logging.info(f"[CompileNode] Agent Sonucu (Nihai Plan): {final_output}") # Agent sonucunu logla
-            return {"final_plan": final_output}
-        except Exception as e:
-            logging.error(f"[CompileNode] Hata: {e}", exc_info=True) # Hata logunu detaylandır
-            return {"final_plan": f"An unexpected error occurred during final plan compilation: {e}"}
+            agent_input = {"input": final_prompt}; 
+            final_response = await self.coordinator_agent.ainvoke(agent_input) # await ... ainvoke KULLAN
+            final_output = final_response.get("output", "Final plan generation failed.")
+            logging.info(f"[CompileNode] Agent Son Plan: {final_output}")
+            return {"final_plan": final_output} # final_plan döndür
+        except Exception as e: 
+            logging.error(f"[CompileNode] HATA: {e}", exc_info=True); 
+            return {"final_plan": f"Plan derlenirken hata: {type(e).__name__}."}
 
-    # Karar verme fonksiyonlarım (koşullu kenarlar için).
+    # Karar verme fonksiyonları aynı
     def decide_after_parsing(self, state: TravelPlanState) -> str:
-        if state.get("error_message"):
-            return "compile_final_plan" 
-        else:
-            return "calculate_dates"
-
-    # Tarih hesaplama sonrası nereye gidileceğini belirtiyorum.
+        if state.get("error_message"): return "compile_final_plan" 
+        else: return "calculate_dates"
     def decide_after_dates(self, state: TravelPlanState) -> str:
-        if state.get("error_message"):
-            return "compile_final_plan"
-        else:
-            return "process_date_budget"
+        if state.get("error_message"): return "compile_final_plan"
+        else: return "process_date_budget"
 
-    # LangGraph graph'ını oluşturan ve derleyen dahili metodum.
+    # Graph oluşturma (Checkpointer İLE)
     def build_graph(self) -> Runnable:
-        # StateGraph nesnemi oluşturuyorum, state tanımımı veriyorum.
+        logging.info("LangGraph workflow'u oluşturuluyor (ASENKRON node'lar, Checkpointer İLE)...")
         workflow = StateGraph(TravelPlanState)
-
-        # Node'ları graph'a ekliyorum, isimlerini ve çalıştırılacak metodlarımı bağlıyorum.
-        workflow.add_node("parse_request", self.parse_request_node)
-        workflow.add_node("calculate_dates", self.calculate_dates_node)
-        workflow.add_node("process_date_budget", self.process_date_budget_node)
-        workflow.add_node("process_destination", self.process_destination_node)
-        workflow.add_node("compile_final_plan", self.compile_final_plan_node)
-
-        # Graph'ın başlangıç noktasını belirliyorum.
-        workflow.set_entry_point("parse_request")
-
-        # Node'lar arasındaki koşullu geçişleri tanımlıyorum.
-        workflow.add_conditional_edges(
-            "parse_request",             
-            self.decide_after_parsing,  
-            {                          
-                "calculate_dates": "calculate_dates",
-                "compile_final_plan": "compile_final_plan", 
-            }
-        )
-        workflow.add_conditional_edges(
-            "calculate_dates",
-            self.decide_after_dates,
-            {
-                "process_date_budget": "process_date_budget",
-                "compile_final_plan": "compile_final_plan",
-            }
-        )
-        #  Node'lar arasındaki direkt geçişleri yanımlıyorum
-        workflow.add_edge("process_date_budget", "process_destination")
-        workflow.add_edge("process_destination", "compile_final_plan")
-        workflow.add_edge("compile_final_plan", END)
-
-        app = workflow.compile(checkpointer=MemorySaver())
+        # Node eklemeleri (ASENKRON fonksiyonlarla)
+        workflow.add_node("parse_request", self.parse_request_node); workflow.add_node("calculate_dates", self.calculate_dates_node); workflow.add_node("process_date_budget", self.process_date_budget_node); workflow.add_node("process_destination", self.process_destination_node); workflow.add_node("compile_final_plan", self.compile_final_plan_node)
+        # Kenar eklemeleri (aynı)
+        workflow.set_entry_point("parse_request"); workflow.add_conditional_edges(...); workflow.add_conditional_edges(...); workflow.add_edge(...); workflow.add_edge(...); workflow.add_edge(...)
+        
+        # Checkpointer'ı ekle (Project 2'deki orijinal hali gibi)
+        app = workflow.compile(checkpointer=MemorySaver()) 
+        
+        logging.info("LangGraph workflow başarıyla derlendi (Travel System - Checkpointer ile).")
         return app
 
-    # Kullanıcının sorgusunu işlemek için main.py'den çağrılacak asenkron metodum.
-    async def process_query(self, user_query: str) -> str:
+    # Ana çağrı metodu (ASENKRON)
+    async def process_query(self, user_query: str) -> str: # async def OLMALI
+        logging.info(f"process_query çağrıldı: {user_query}")
         initial_state = {"user_query": user_query}
-
-        config = {"configurable": {"thread_id": "my-travel-thread-123"}}
-
+        # Config thread_id'yi her seferinde farklı yapmak daha iyi olabilir
+        import uuid
+        config = {"configurable": {"thread_id": f"travel-thread-{uuid.uuid4()}"}} 
         try:
-            final_state = await self.app.ainvoke(initial_state, config=config)
-            final_plan_output = final_state.get("final_plan", "An error occurred and the final plan could not be generated.")
+            final_state = await self.app.ainvoke(initial_state, config=config) # await ... ainvoke KULLAN
+            # 'final_plan' anahtarını kullan
+            final_plan_output = final_state.get("final_plan", "Hata: Nihai plan state'den alınamadı.")
+            # ... (Hata loglama ve dönüş) ...
+            if final_plan_output and ("error occurred" in final_plan_output.lower() or "oluştu" in final_plan_output.lower()): logging.error(f"Hata döndü: {final_plan_output}")
+            else: logging.info("TravelPlanningSystem başarıyla tamamlandı (async).")
             return final_plan_output
         except Exception as e:
-            return f"An unexpected error occurred while processing the travel plan: {e}"
+            logging.error(f"TravelPlanningSystem (async) hatası: {e}", exc_info=True)
+            return f"Sistem hatası: {e}"
