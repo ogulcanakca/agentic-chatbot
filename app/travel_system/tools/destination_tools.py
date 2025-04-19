@@ -5,6 +5,7 @@ import requests
 import json
 import logging
 from datetime import datetime
+from urllib.parse import quote 
 from typing import Optional, Dict, Any # Optional, Dict, Any import edildiğinden emin olun
 from langchain_core.tools import tool
 from langchain_community.utilities import GoogleSerperAPIWrapper
@@ -245,3 +246,96 @@ def Google_Hotels_with_tavily(destination: str, start_date: str, end_date: str, 
     except Exception as e:
         logging.error(f"Tavily otel araması sırasında hata: {e}", exc_info=True)
         return f"Otel araması sırasında bir sorun oluştu: {e}"
+    
+# Önce koordinatları almak için yardımcı fonksiyon (TomTom Search API ile)
+def get_tomtom_coordinates(city_name: str, api_key: str) -> Dict[str, Any]:
+    """Helper function to get coordinates using TomTom Search API."""
+    # API anahtarı kontrolü burada tekrar yapılabilir veya çağıran fonksiyonda yapılır.
+    if not api_key: 
+        # Bu yardımcı fonksiyon olduğu için hata loglayıp None dönmek yerine 
+        # hata dictionary'si döndürmek daha iyi olabilir.
+        logging.error("get_tomtom_coordinates çağrılırken API anahtarı eksik.")
+        return {"error": "TomTom API anahtarı eksik."}
+
+    logging.debug(f"TomTom Search API ile '{city_name}' koordinatları alınıyor...")
+    encoded_city = quote(city_name) # Şehir adını URL için güvenli hale getir
+    # TomTom Geocoding API Endpoint v2
+    url = f"https://api.tomtom.com/search/2/geocode/{encoded_city}.json?key={api_key}&limit=1"
+    
+    try:
+        response = requests.get(url)
+        # Yanıtı logla (debug için)
+        logging.debug(f"TomTom Geocoding Yanıt Kodu: {response.status_code}, Yanıt: {response.text[:200]}...") # Yanıtın başını logla
+        response.raise_for_status() # HTTP hatası varsa exception fırlat
+        data = response.json()
+        
+        # Yanıtın beklenen formatta olup olmadığını kontrol et
+        if data and data.get('results') and isinstance(data['results'], list) and len(data['results']) > 0:
+            position = data['results'][0].get('position')
+            # Pozisyon bilgisinin ve lat/lon'un varlığını kontrol et
+            if position and isinstance(position, dict) and 'lat' in position and 'lon' in position:
+                 try:
+                     # Değerleri float'a çevirmeyi dene
+                     lat = float(position['lat'])
+                     lon = float(position['lon'])
+                     logging.debug(f"TomTom koordinatları bulundu: Lat={lat}, Lon={lon}")
+                     return {"lat": lat, "lon": lon} # Başarılı sonuç
+                 except (ValueError, TypeError) as conv_err:
+                      logging.error(f"TomTom koordinatları sayıya çevrilemedi: {conv_err} - Veri: {position}")
+                      return {"error": f"TomTom API'den geçersiz koordinat formatı alındı."}
+            else:
+                 logging.warning(f"TomTom Geocoding API yanıtında 'position' veya 'lat'/'lon' bulunamadı. Yanıt: {data}")
+                 return {"error": f"TomTom API '{city_name}' için koordinat pozisyonu bulamadı (detaylı yanıt formata bakın)."}
+        else:
+            logging.warning(f"TomTom Search API '{city_name}' için koordinat bulamadı veya geçersiz yanıt. Yanıt: {data}")
+            return {"error": f"TomTom API '{city_name}' için koordinat bulamadı (geçersiz yanıt)."}
+            
+    except requests.exceptions.RequestException as e:
+        logging.error(f"TomTom Search API'sine bağlanırken hata: {e}", exc_info=True)
+        return {"error": f"Harita koordinatları alınamadı (TomTom bağlantı hatası): {e}"}
+    except json.JSONDecodeError as e:
+         logging.error(f"TomTom Search API yanıtı JSON olarak çözümlenemedi: {e}. Yanıt Metni: {response.text[:200]}...")
+         return {"error": f"Harita koordinatları alınamadı (TomTom API yanıt formatı hatası)."}
+    except Exception as e:
+        # Diğer beklenmedik hatalar
+        logging.error(f"TomTom koordinatları alınırken/işlenirken beklenmedik hata: {e}", exc_info=True)
+        return {"error": f"Harita koordinatları alınırken beklenmedik bir sorun oluştu (TomTom): {e}"}
+
+# Asıl Langchain Aracı (@tool ile işaretlenmiş)
+@tool
+def get_tomtom_map_url(city_name: str) -> str:
+    """
+    Belirtilen şehir için TomTom Map Display API kullanarak statik bir harita 
+    görseli URL'si oluşturur. TOMTOM_API_KEY ortam değişkeni gereklidir.
+    """
+    # TomTom API anahtarını al
+    api_key = os.getenv("TOMTOM_API_KEY")
+    if not api_key:
+        logging.error("TOMTOM_API_KEY ortam değişkeni bulunamadı.")
+        # Agent'a hatayı bildir
+        return "Hata: Harita oluşturmak için gerekli API anahtarı (TomTom) bulunamadı."
+
+    # Yardımcı fonksiyonu kullanarak koordinatları al
+    coords = get_tomtom_coordinates(city_name, api_key)
+    # Koordinatlar alınırken hata oluştuysa, hata mesajını döndür
+    if "error" in coords:
+        logging.error(f"Harita URL'si için koordinatlar alınamadı: {coords['error']}")
+        return f"Hata: Harita için konum bilgisi alınamadı ({city_name}). Sebep: {coords['error']}"
+        
+    # Koordinatları al
+    lat = coords['lat']
+    lon = coords['lon']
+    
+    # Statik Harita URL'sini oluşturmak için parametreler
+    zoom = 11      # Şehir geneli görünümü için uygun bir zoom seviyesi
+    width = 600    # Piksel cinsinden genişlik
+    height = 400   # Piksel cinsinden yükseklik
+    img_format = "png" # Resim formatı (png veya jpg olabilir)
+    
+    # TomTom Static Image API v1 URL formatı
+    # Dökümantasyon: https://developer.tomtom.com/map-display-api/documentation/static-image/static-image
+    map_url = f"https://api.tomtom.com/map/1/staticimage?key={api_key}&center={lon},{lat}&zoom={zoom}&width={width}&height={height}&format={img_format}"
+    
+    logging.info(f"TomTom statik harita URL'si oluşturuldu: {city_name}")
+    # Başarı durumunda oluşturulan URL'yi string olarak döndür
+    return map_url

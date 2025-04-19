@@ -18,6 +18,7 @@ from .tools.parsing_tools import parse_travel_query
 # Graph'ın state yapısını tanımlıyorum. Akış boyunca bu bilgiler taşınacak.
 class TravelPlanState(TypedDict):
     user_query: str
+    origin: Optional[str]
     parsed_request: Optional[Dict[str, Any]]
     calculated_dates: Optional[Dict[str, str]]
     date_budget_summary: Optional[str]
@@ -38,19 +39,37 @@ class TravelPlanningSystem:
 
     # Kullanıcı sorgusunu ayrıştırma işleminin yapıldığı node
     async def parse_request_node(self, state: TravelPlanState) -> Dict[str, Any]:
-
+        logging.debug(f"[ParseNode] Gelen state: {state}")
         user_query = state['user_query']
         try:
-            # parse_travel_query tool'umu doğrudan kullanıyorum.
-            parsed_info = parse_travel_query.func(user_query=user_query)
-            # Gerekli bilgiler (hedef, tarih, süre) eksikse veya hata varsa belirtiyorum.
-            if "error" in parsed_info or not all(k in parsed_info for k in ["destination", "natural_language_date", "duration_days"]):
-                 return {"error_message": "Failed to parse essential travel details (destination, date, duration)."}
-            # Başarılı olursa ayrıştırılmış bilgiyi ve hata olmadığını state'e ekliyorum.
-            return {"parsed_request": parsed_info, "error_message": None}
-        except Exception as e:
-            return {"error_message": f"An unexpected error occurred during parsing: {e}"}
+            # parse_travel_query tool'unu çağır (bu artık origin içerebilir)
+            # Not: Eğer tool @tool ile işaretliyse .invoke() kullanmak daha standart olabilir
+            # Ama mevcut kodunuzda doğrudan func çağrılıyor, onu koruyalım
+            # parsed_info = await parse_travel_query.ainvoke({"user_query": user_query}) 
+            parsed_info = parse_travel_query.func(user_query=user_query) 
+            logging.info(f"[ParseNode] Ayrıştırma Sonucu: {parsed_info}")
 
+            # Hata mesajını kontrol et
+            error_message = parsed_info.get("error")
+
+            # Gerekli bilgiler eksikse hata mesajını önceliklendir
+            required_fields = ["destination", "natural_language_date", "duration_days"]
+            missing_fields = [field for field in required_fields if field not in parsed_info]
+            if missing_fields:
+                error_message = parsed_info.get("error", f"Eksik bilgi: {', '.join(missing_fields)}")
+                logging.warning(f"[ParseNode] Eksik zorunlu alanlar: {missing_fields}")
+
+
+            # State'e hem ayrıştırılmış isteği hem de origin'i ekle
+            # Origin yoksa None olarak eklenecek
+            return {
+                "parsed_request": parsed_info, 
+                "origin": parsed_info.get("origin"), # <-- Origin'i state'e ekle
+                "error_message": error_message # Hata mesajını da ekle
+            }
+        except Exception as e:
+            logging.error(f"[ParseNode] Hata: {e}", exc_info=True)
+            return {"error_message": f"An unexpected error occurred during parsing: {e}"}
     # Seyahat tarihlerini hesaplama işleminin yapıldığı node.
     async def calculate_dates_node(self, state: TravelPlanState) -> Dict[str, Any]:
         parsed_info = state.get('parsed_request')
@@ -107,29 +126,34 @@ class TravelPlanningSystem:
 
     # Gidilecek yer hakkında bilgi toplama node'u.
     async def process_destination_node(self, state: TravelPlanState) -> Dict[str, Any]:
+        logging.debug(f"[DestinationNode] Gelen state: {state}") 
         parsed_info = state.get('parsed_request')
         calculated_dates = state.get('calculated_dates')
+        origin_city = state.get('origin')
         # Gerekli bilgiler yoksa atlıyorum.
         if not parsed_info or not calculated_dates:
            return {"destination_summary": "Skipped: Missing required info for destination processing."}
 
+        destination_city = parsed_info['destination']
         start_date = calculated_dates['start_date']
         end_date = calculated_dates['end_date']
 
         # Destinasyon Agent'ım için prompt..
         # Sadece son özetin Türkçe olmasını istiyorum.
         destination_query = f"""
-        Please collect detailed travel information for the following destination and dates, and provide the result as a Turkish summary:
-        - Destination: {parsed_info['destination']}
+        Please collect detailed travel information for the following trip and provide the result as a Turkish summary:
+        - Origin: {origin_city or 'Not Specified'} 
+        - Destination: {destination_city}
         - Start Date: {start_date}
         - End Date: {end_date}
         - Budget Information (for reference): {parsed_info.get('budget_amount', 'N/A')} {parsed_info.get('budget_currency', '')}
 
         Tasks:
-        1. Use `search_city_info` to gather general information about {parsed_info['destination']} (historical sites, popular spots, etc.).
-        2. Use `get_weather_forecast` to get the weather forecast and outfit suggestions for {start_date} - {end_date}.
-        3. Use `Google Hotels_with_tavily` to research suitable hotel options for the specified dates (using the budget as reference if available). Try to include price and location details.
-        4. Combine the outputs from these three tools to provide a comprehensive Turkish summary about the destination (under Turkish headings: City Information, Weather/Outfit, Hotel Options).
+        1. Use `search_city_info` for {destination_city}.
+        2. Use `get_weather_forecast` for {destination_city} between {start_date} - {end_date}.
+        3. Use `Google Hotels_with_tavily` for {destination_city} for the specified dates (use budget as reference).
+        4. Use `get_tomtom_map_url`, providing BOTH origin ('{origin_city or ''}') and destination ('{destination_city}') cities to get a map URL showing both if possible. If origin is not specified, just provide the destination.
+        5. Combine the outputs from these tools to provide a comprehensive Turkish summary under headings: Şehir Bilgileri, Hava Durumu/Kıyafet Önerileri, Otel Seçenekleri, Harita Görünümü. Ensure the map URL is included under its heading.
         """
         try:
             response = await self.destination_agent.ainvoke({"input": destination_query})
