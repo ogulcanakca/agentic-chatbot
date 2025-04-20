@@ -25,10 +25,9 @@ from app.core.state import AgentState
 # Node isimleri config'den (Aynı kalıyor)
 from configs.app_config import (
     NODE_SUPERVISOR, NODE_RESMI_GAZETE, NODE_NEWS,
-    NODE_FALLBACK, NODE_TRAVEL, NODE_AGENTIC_RAG
+    NODE_FALLBACK, NODE_TRAVEL, NODE_AGENTIC_RAG, BELGE_SORUSU_CATEGORY
 )
 # Yeni kategori adını doğrudan string olarak kullanacağız
-BELGE_SORUSU_CATEGORY = "Belge Sorusu" # Config'e eklediğiniz isimle aynı olmalı
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 

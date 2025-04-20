@@ -76,11 +76,37 @@ CLASSIFICATION_PROMPT_TEMPLATE = """Görevin, aşağıda verilen kullanıcı sor
  3.  **Travel**: Seyahat planlama, uçuşlar, oteller, destinasyonlar, güzergahlar, seyahat tavsiyeleri hakkında sorular.
 
  4. - **Belge Sorusu**: Sorgu açıkça daha önce yüklenmiş bir belgeye, içeriğine veya özetiyle ilgiliyse ya da belgeyle ilgili bir takip sorusu (örn: 'o belgede...', '...ilgili olarak...', 'X konusunda başka ne diyor?') ile ilgili sorular. *** Belge bağlamı varsa bu kategori diğerlerine göre önceliklidir. ***
+
  5.  **Other**: Yukarıdaki iki kategoriye girmeyen, genel sohbet ("Merhaba", "Nasılsın?", "İyi günler"), anlamsız veya eksik ifadeler ("asdf"), doğrudan talimatlar ("Bana kod yaz"), şaka/fıkra isteme gibi bu sistemin cevaplaması için tasarlanmamış diğer tüm sorgular. 
+
+İşte bazı sınıflandırma örnekleri:
+Sorgu: "Son çıkan KHK'da neler var?"
+Kategori: Resmi Gazete
+Sorgu: "İstanbul'dan Ankara'ya tren bileti bakabilir misin?"
+Kategori: Travel
+Sorgu: "Yapay zeka etiği hakkında bilgi verir misin?"
+Kategori: News
+Sorgu: "Az önceki belgede belirtilen riskler nelerdi?"
+Kategori: Belge Sorusu
+Sorgu: "Merhaba nasılsın"
+Kategori: Other
+Sorgu: "O raporda bahsedilen ikinci maddeyi açıklar mısın?"
+Kategori: Belge Sorusu
+
+Şimdi aşağıdaki sorguyu sınıflandır:
 
  Kullanıcı Sorgusu: 
  "{query}" 
 
- Bu sorguyu dikkatlice değerlendir ve YALNIZCA ve SADECE yukarıdaki üç kategori adından birini (Resmi Gazete, News, veya Other) cevap olarak ver. Başka hiçbir ek bilgi, açıklama veya giriş cümlesi yazma. 
+ Bu sorguyu dikkatlice değerlendir ve YALNIZCA ve SADECE yukarıdaki **beş** kategori adından birini ('Resmi Gazete', 'News', 'Travel', 'Belge Sorusu', 'Other') cevap olarak ver. Başka hiçbir ek bilgi, açıklama veya giriş cümlesi yazma.
 
- Kategori:""" 
+Kategori:"""
+
+RAG_PROMPT_TEMPLATE = """Sadece aşağıda verilen bağlamı (context) kullanarak soruyu yanıtlayınız. Bağlam dışına çıkmayınız. Eğer cevap bağlamda bulunmuyorsa, 'Bilgi aktif belgede bulunamadı.' deyin.
+
+Bağlam:
+{context}
+
+Soru: {question}
+
+Yanıt:"""

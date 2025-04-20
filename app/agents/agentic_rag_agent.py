@@ -12,7 +12,6 @@ import streamlit as st # Streamlit'i import et
 # ... (Chroma, Embeddings, Loaders, Splitter, PromptTemplate vb.) ...
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.document_loaders import ( PyPDFLoader, TextLoader, Docx2txtLoader, UnstructuredFileLoader)
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
@@ -23,17 +22,12 @@ from app.core.llm import get_llm
 # from app.state import AgentState
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
+from configs.app_config import (LOADER_MAPPING)
+from configs.agent_config import (RAG_PROMPT_TEMPLATE)
 
 # --- LOADER_MAPPING, RAG_PROMPT_TEMPLATE (Aynı kalıyor) ---
-LOADER_MAPPING = { ".pdf": PyPDFLoader, ".txt": TextLoader, ".md": TextLoader, ".docx": Docx2txtLoader }
-RAG_PROMPT_TEMPLATE = """Sadece aşağıda verilen bağlamı (context) kullanarak soruyu yanıtlayınız. Bağlam dışına çıkmayınız. Eğer cevap bağlamda bulunmuyorsa, 'Bilgi aktif belgede bulunamadı.' deyin.
 
-Bağlam:
-{context}
 
-Soru: {question}
-
-Yanıt:"""
 
 # Fonksiyon imzasını dict olarak değiştirebiliriz
 def handle_uploaded_doc_query(state: dict) -> Dict[str, Any]:

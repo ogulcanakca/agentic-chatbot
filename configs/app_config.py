@@ -3,6 +3,8 @@
 from pathlib import Path
 import sys
 import logging
+from langchain_community.document_loaders import ( PyPDFLoader, TextLoader, Docx2txtLoader, UnstructuredFileLoader)
+
 
 project_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(project_root))
@@ -33,3 +35,5 @@ NODE_FALLBACK = "fallback_agent"
          
 NODE_TRAVEL = "travel_agent" 
 NODE_AGENTIC_RAG = "agentic_rag_agent"
+BELGE_SORUSU_CATEGORY = "Belge Sorusu"
+LOADER_MAPPING = { ".pdf": PyPDFLoader, ".txt": TextLoader, ".md": TextLoader, ".docx": Docx2txtLoader }
