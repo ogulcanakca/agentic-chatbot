@@ -32,3 +32,4 @@ NODE_NEWS = "news_agent"
 NODE_FALLBACK = "fallback_agent"
          
 NODE_TRAVEL = "travel_agent" 
+NODE_AGENTIC_RAG = "agentic_rag_agent"

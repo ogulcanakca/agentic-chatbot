@@ -18,3 +18,9 @@ dateparser
 pydantic-settings
 langchain-community
 fpdf
+chromadb
+python-docx 
+
+unstructured "unstructured[local-inference]" 
+tiktoken
+pypdf

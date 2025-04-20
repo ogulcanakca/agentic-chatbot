@@ -1,89 +1,104 @@
 # app/graph.py
+
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, TypedDict, List # List eklendi (isteğe bağlı)
+from typing import Optional, List # TypedDict ve bytes artık state.py'de
 
 from langgraph.graph import StateGraph, END
 
-# Proje kök dizinini sys.path'e ekleme
+# Proje kök dizini
 project_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(project_root))
 
-# Agent'ları import et
+# Agent'ları import et (Aynı kalıyor)
 from app.agents.supervisor import classify_query
 from app.agents.resmi_gazete_agent import generate_resmi_gazete_answer
 from app.agents.news_agent import handle_news_query
 from app.agents.fallback_agent import handle_fallback
-from app.agents.travel_agent import handle_travel_query # Yeni agent'ı import et
+from app.agents.travel_agent import handle_travel_query
+from app.agents.agentic_rag_agent import handle_uploaded_doc_query
 
-# Node isimlerini config'den al
-from configs.app_config import NODE_SUPERVISOR, NODE_RESMI_GAZETE, NODE_NEWS, NODE_FALLBACK, NODE_TRAVEL # NODE_TRAVEL eklendi
+# State import'u state.py'den (Aynı kalıyor)
+from app.core.state import AgentState
+
+# Node isimleri config'den (Aynı kalıyor)
+from configs.app_config import (
+    NODE_SUPERVISOR, NODE_RESMI_GAZETE, NODE_NEWS,
+    NODE_FALLBACK, NODE_TRAVEL, NODE_AGENTIC_RAG
+)
+# Yeni kategori adını doğrudan string olarak kullanacağız
+BELGE_SORUSU_CATEGORY = "Belge Sorusu" # Config'e eklediğiniz isimle aynı olmalı
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
-# State'i güncelle (pdf_path eklendi)
-class AgentState(TypedDict):
-    query: str
-    classification: Optional[str]
-    context: Optional[str]
-    answer: Optional[str]
-    source: Optional[str]
-    pdf_path: Optional[str] # Seyahat planı PDF yolu için
-    # İsteğe bağlı: Mesaj geçmişi için
-    # messages: Optional[List[dict]] 
 
 # Yönlendirme fonksiyonunu güncelle
 def route_based_on_classification(state: AgentState) -> str:
+    # Doğrudan yönlendirme kontrolü (Aynı kalıyor)
+    if state.get("route_directly_to_agentic_rag"):
+        logging.info(f"[Router] Doğrudan yönlendirme işareti algılandı. Yönlendirme: '{NODE_AGENTIC_RAG}'")
+        return NODE_AGENTIC_RAG
+
+    # Sınıflandırma sonucu (Aynı kalıyor)
     classification_result = state.get("classification")
     logging.info(f"[Router] Sınıflandırma sonucuna göre yönlendirme: '{classification_result}'")
 
+    # Mevcut yönlendirmeler (Aynı kalıyor)
     if classification_result == "Resmi Gazete":
         return NODE_RESMI_GAZETE
     elif classification_result == "News":
         return NODE_NEWS
-    elif classification_result == "Travel": # Yeni yönlendirme kuralı
+    elif classification_result == "Travel":
         return NODE_TRAVEL
-    # elif classification_result == "Other": # 'Other' için Fallback mantığı devam ediyor
-    #     return NODE_FALLBACK
-    else: # 'Other' dahil diğer tüm durumlar (None, geçersiz vb.) Fallback'e gitsin
+    # --- YENİ KATEGORİ KONTROLÜ ---
+    elif classification_result == BELGE_SORUSU_CATEGORY:
+        logging.info(f"[Router] Sınıflandırma '{BELGE_SORUSU_CATEGORY}'. Yönlendirme: '{NODE_AGENTIC_RAG}'")
+        return NODE_AGENTIC_RAG
+    # ----------------------------
+    else: # Fallback (Aynı kalıyor)
         logging.warning(f"Beklenmedik veya 'Other' sınıflandırma '{classification_result}'. Fallback'e yönlendiriliyor.")
         return NODE_FALLBACK
 
+# --- Workflow Tanımlama ve Düğüm Ekleme (Aynı kalıyor) ---
 logging.info("LangGraph iş akışı (workflow) oluşturuluyor...")
 workflow = StateGraph(AgentState)
 
-# Düğümleri ekle (yeni travel node dahil)
 workflow.add_node(NODE_SUPERVISOR, classify_query)
 workflow.add_node(NODE_RESMI_GAZETE, generate_resmi_gazete_answer)
 workflow.add_node(NODE_NEWS, handle_news_query)
-workflow.add_node(NODE_TRAVEL, handle_travel_query) # Yeni travel node'u ekle
+workflow.add_node(NODE_TRAVEL, handle_travel_query)
 workflow.add_node(NODE_FALLBACK, handle_fallback)
-logging.info("Graph'a düğümler eklendi: Supervisor, Resmi Gazete, News, Travel, Fallback.")
+workflow.add_node(NODE_AGENTIC_RAG, handle_uploaded_doc_query) # Bu zaten doğru fonksiyonu gösteriyor
+logging.info(f"Graph'a düğümler eklendi.")
 
+# --- Giriş Noktası (Aynı kalıyor) ---
 workflow.set_entry_point(NODE_SUPERVISOR)
 logging.info(f"Graph giriş noktası: '{NODE_SUPERVISOR}'")
 
-# Koşullu kenarları güncelle (yeni travel hedefi dahil)
+# --- Koşullu Kenarları Güncelle ---
 workflow.add_conditional_edges(
     NODE_SUPERVISOR,
     route_based_on_classification,
     {
         NODE_RESMI_GAZETE: NODE_RESMI_GAZETE,
         NODE_NEWS: NODE_NEWS,
-        NODE_TRAVEL: NODE_TRAVEL, # Travel için hedef
-        NODE_FALLBACK: NODE_FALLBACK # Fallback için hedef (Other ve diğer durumlar)
+        NODE_TRAVEL: NODE_TRAVEL,
+        NODE_FALLBACK: NODE_FALLBACK,
+        NODE_AGENTIC_RAG: NODE_AGENTIC_RAG, # Doğrudan yönlendirme için hedef
+        BELGE_SORUSU_CATEGORY: NODE_AGENTIC_RAG # Yeni kategori için hedef
     }
 )
-logging.info(f"'{NODE_SUPERVISOR}' sonrası koşullu yönlendirme güncellendi.")
+logging.info(f"'{NODE_SUPERVISOR}' sonrası koşullu yönlendirme güncellendi ('{BELGE_SORUSU_CATEGORY}' hedefi eklendi).")
 
-# Tüm agent düğümlerinden END'e kenar ekle
+# --- Bitiş Kenarları (Aynı kalıyor) ---
 workflow.add_edge(NODE_RESMI_GAZETE, END)
 workflow.add_edge(NODE_NEWS, END)
-workflow.add_edge(NODE_TRAVEL, END) # Travel agent'ından sonra da bitir
+workflow.add_edge(NODE_TRAVEL, END)
 workflow.add_edge(NODE_FALLBACK, END)
-logging.info("Alt agent düğümlerinden (Resmi Gazete, News, Travel, Fallback) sonra graph bitiş noktaları (END) eklendi.")
+workflow.add_edge(NODE_AGENTIC_RAG, END)
+logging.info("Alt agent düğümlerinden sonra graph bitiş noktaları (END) eklendi.")
 
-# Graph'ı derle
+# --- Graph Derleme (Aynı kalıyor) ---
 graph_app = workflow.compile()
 logging.info("LangGraph iş akışı başarıyla derlendi ve 'graph_app' olarak hazırlandı.")

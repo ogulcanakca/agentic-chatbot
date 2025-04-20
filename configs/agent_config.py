@@ -61,11 +61,11 @@ Cevap:"""
 
 from typing import List
 # Yönlendirme için kullanılacak geçerli kategoriler
-VALID_TARGET_CATEGORIES: List[str] = ["Resmi Gazete", "News", "Travel", "Other"]
+VALID_TARGET_CATEGORIES: List[str] = ["Resmi Gazete", "News", "Travel", "Belge Sorusu","Other"]
 # LLM geçerli bir kategori döndürmezse veya hata olursa varsayılan kategori
 DEFAULT_TARGET_CATEGORY: str = "Other"
 # Sorguyu sınıflandırmak için LLM'e verilen prompt.
-CLASSIFICATION_PROMPT_TEMPLATE = """Görevin, aşağıda verilen kullanıcı sorgusunu analiz ederek şu üç kategoriden hangisine en uygun olduğunu belirlemektir: 
+CLASSIFICATION_PROMPT_TEMPLATE = """Görevin, aşağıda verilen kullanıcı sorgusunu analiz ederek şu beş kategoriden hangisine en uygun olduğunu belirlemektir: 
 
  1.  **Resmi Gazete**: Türkiye Cumhuriyeti Resmi Gazetesi'nde yayımlanan mevzuat (kanun, KHK, yönetmelik, tebliğ vb.), Cumhurbaşkanlığı Kararnameleri, Cumhurbaşkanlığı Genelgeleri, Cumhurbaşkanı Kararları (atama/görevden alma, yatırım programları, mali düzenlemeler, uluslararası anlaşmaların onayı vb.), yargı kararları (HSK, AYM vb.), TBMM kararları, ilanlar veya ilgili idari süreçler hakkında bilgi arayan sorular. 
      * Örnekler: "Son torba yasa ne zaman çıktı?", "Doğum Yardımı Yönetmeliği değişti mi?", "Resmi Gazete'de bugün hangi atamalar var?", "İş yerinde psikolojik tacizle ilgili yeni genelge yayımlandı mı?", "2025 Yılı Yatırım Programı açıklandı mı?"
@@ -75,7 +75,8 @@ CLASSIFICATION_PROMPT_TEMPLATE = """Görevin, aşağıda verilen kullanıcı sor
      
  3.  **Travel**: Seyahat planlama, uçuşlar, oteller, destinasyonlar, güzergahlar, seyahat tavsiyeleri hakkında sorular.
 
- 4.  **Other**: Yukarıdaki iki kategoriye girmeyen, genel sohbet ("Merhaba", "Nasılsın?", "İyi günler"), anlamsız veya eksik ifadeler ("asdf"), doğrudan talimatlar ("Bana kod yaz"), şaka/fıkra isteme gibi bu sistemin cevaplaması için tasarlanmamış diğer tüm sorgular. 
+ 4. - **Belge Sorusu**: Sorgu açıkça daha önce yüklenmiş bir belgeye, içeriğine veya özetiyle ilgiliyse ya da belgeyle ilgili bir takip sorusu (örn: 'o belgede...', '...ilgili olarak...', 'X konusunda başka ne diyor?') ile ilgili sorular. *** Belge bağlamı varsa bu kategori diğerlerine göre önceliklidir. ***
+ 5.  **Other**: Yukarıdaki iki kategoriye girmeyen, genel sohbet ("Merhaba", "Nasılsın?", "İyi günler"), anlamsız veya eksik ifadeler ("asdf"), doğrudan talimatlar ("Bana kod yaz"), şaka/fıkra isteme gibi bu sistemin cevaplaması için tasarlanmamış diğer tüm sorgular. 
 
  Kullanıcı Sorgusu: 
  "{query}" 
