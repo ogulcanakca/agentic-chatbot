@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any # Dict ve Any eklendi
 from langchain_core.tools import tool
 # Silinen config modülünden yapılan importu kaldırın:
 # from config import llm, settings 
+import logging
 
 # Şehir-Para Birimi eşlemesi (bu kısım kalabilir veya genişletilebilir)
 CITY_CURRENCY_MAP = {

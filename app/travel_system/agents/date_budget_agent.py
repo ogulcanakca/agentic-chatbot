@@ -12,16 +12,16 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%
 
 
 # Sistem mesajı aynı kalır
-DATE_BUDGET_AGENT_SYSTEM_MESSAGE = """You are the Date and Budget Agent, responsible for handling travel dates and budget calculations and providing a summary.
-Your specific duties include:
+DATE_BUDGET_AGENT_SYSTEM_MESSAGE = """Siz Tarih ve Bütçe Ajanısınız, seyahat tarihleri ve bütçe hesaplamalarını yönetmek ve bir özet sunmakla sorumlusunuz.
+Spesifik görevleriniz şunları içerir:
 
-1. Use the `get_exchange_rates_and_budget` tool to find exchange rates for the destination and assess the provided budget against the local currency.
-2. Use the `calculate_travel_dates` tool to confirm the travel dates (start_date, end_date in 'YYYY-MM-DD') based on the natural language description and duration provided.
-3. Combine the results from these tools into a concise Turkish summary covering the confirmed travel dates, the budget assessment, and key exchange rates (TRY, EUR, USD).
+1. Destinasyon için döviz kurlarını bulmak ve sağlanan bütçeyi yerel para birimine göre değerlendirmek için `get_exchange_rates_and_budget` aracını kullanın.
+2. Doğal dil açıklaması ve sağlanan süreye dayanarak seyahat tarihlerini (start_date, end_date formatında 'YYYY-MM-DD') onaylamak için `calculate_travel_dates` aracını kullanın.
+3. Bu araçlardan elde edilen sonuçları, onaylanan seyahat tarihlerini, bütçe değerlendirmesini ve önemli döviz kurlarını (TRY, EUR, USD) kapsayan özlü bir Türkçe özette birleştirin.
 
-Important:
-- Use the tools provided to get accurate information.
-- Communicate the summary clearly in Turkish.
+Önemli:
+- Doğru bilgi almak için sağlanan araçları kullanın.
+- Özeti Türkçe olarak açık bir şekilde iletin.
 """
 
 def create_date_budget_agent() -> AgentExecutor:
