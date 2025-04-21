@@ -14,106 +14,106 @@ from configs.app_config import MODEL_NAME, CHROMA_DATA_PATH, create_chroma_data_
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
-# ChromaDB'nin bulunacağı klasörü oluşturma fonksiyonumuzu çalıştırıyoruz
+# Running our function to create the folder where ChromaDB will be located
 create_chroma_data_path()
 
-# ChromaDB client nesnesini basit cache mekanizmasıyla sakladığımız global değişkenimiz
+# Global variable for storing the ChromaDB client object with a simple cache mechanism
 client: Optional[chromadb.Client] = None
 
-# Embedding fonksiyonunu basit cache mekanizmasıyla sakladığımız global değişkenimiz
+# Global variable for storing the embedding function with a simple cache mechanism
 embedding_function: Optional[embedding_functions.SentenceTransformerEmbeddingFunction] = None
 
-# Modeli yüklemek için fonksiyonumuz
+# Function to load the model
 def get_embedding_function(embedding_model_name: str = MODEL_NAME) -> embedding_functions.SentenceTransformerEmbeddingFunction:
     global embedding_function
-    # Eğer embedding fonksiyonu daha önce oluşturulmadıysa, yeni bir tane oluşturuyoruz
+    # If the embedding function has not been created before, we create a new one
     if embedding_function is None:
-        logging.info(f"ChromaDB için '{embedding_model_name}' embedding fonksiyonu oluşturuluyor...")
+        logging.info(f"Creating '{embedding_model_name}' embedding function for ChromaDB...")
         embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name=embedding_model_name
             )
     return embedding_function
 
-# ChromaDB client'ı başlatmak için bir fonksiyon tanımlıyoruz
+# Function to start the ChromaDB client
 def get_chroma_client() -> chromadb.Client:
     global client
-    # Eğer client daha önce oluşturulmadıysa, yeni bir tane oluşturuyoruz
+    # If the client has not been created before, we create a new one
     if client is None:
-        logging.info(f"ChromaDB client başlatılıyor (path: {CHROMA_DATA_PATH})...")
+        logging.info(f"Starting ChromaDB client (path: {CHROMA_DATA_PATH})...")
         client = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
     return client
 
-# ChromaDB koleksiyonunu almak veya oluşturmak için bir fonksiyon tanımlıyoruz
+# Function to get or create a ChromaDB collection
 def get_or_create_collection(collection_name: str, embedding_model_name: str = MODEL_NAME) -> Optional[chromadb.Collection]:
 
     client = get_chroma_client()
     emb_func = get_embedding_function(embedding_model_name)
 
-    logging.info(f"'{collection_name}' koleksiyonu alınıyor veya oluşturuluyor (Embedding: {embedding_model_name})...")
+    logging.info(f"Getting or creating '{collection_name}' collection (Embedding: {embedding_model_name})...")
     collection = client.get_or_create_collection(
         name=collection_name,
         embedding_function=emb_func, 
-        metadata={"hnsw:space": "cosine"} # Metin embeddingleri için Cosine Similarity tercih ediyoruz
+        metadata={"hnsw:space": "cosine"}  # We prefer Cosine Similarity for text embeddings
     )
-    logging.info(f"'{collection_name}' koleksiyonu başarıyla alındı/oluşturuldu. Kayıt sayısı: {collection.count()}")
+    logging.info(f"'{collection_name}' collection successfully fetched/created. Number of records: {collection.count()}")
     return collection
 
-# ChromaDB koleksiyonuna veri eklemek için bir fonksiyon tanımlıyoruz
+# Function to add data to a ChromaDB collection
 def add_data_to_collection(collection: chromadb.Collection,
                            ids: List[str],
                            documents: Optional[List[str]] = None,
                            embeddings: Optional[List[List[float]]] = None,
                            metadatas: Optional[List[Dict[str, Any]]] = None) -> bool:
 
-    # Kontrol edilecek ID'lerin listesi boş olup olmadığını kontrol ediyoruz
+    # Check if the list of IDs to be checked is empty
     if not ids:
-        logging.warning("Eklenecek veri için ID listesi boş.")
+        logging.warning("ID list for data to be added is empty.")
         return False
     num_items = len(ids)
 
-    # Eğer hem documents hem de embeddings None ise hata veriyoruz
+    # If both documents and embeddings are None, raise an error
     if documents is None and embeddings is None:
-        logging.error("Veri eklemek için 'documents' veya 'embeddings' parametresi sağlanmalıdır.")
+        logging.error("'documents' or 'embeddings' parameter must be provided to add data.")
         return False
-    # Eğer hem documents hem de embeddings sağlandıysa, embedding'leri kullanmayı tercih ediyoruz
+    # If both documents and embeddings are provided, prefer to use embeddings
     if documents is not None and embeddings is not None:
-        logging.warning("Hem 'documents' hem de 'embeddings' sağlandı. Öncelik 'embeddings'e verilecek.")
+        logging.warning("Both 'documents' and 'embeddings' are provided. Priority will be given to 'embeddings'.")
 
-    # ID'lerin benzersiz olup olmadığını kontrol ediyoruz
+    # Check if the number of IDs matches the number of documents
     if documents is not None and len(documents) != num_items:
-        logging.error(f"ID sayısı ({num_items}) ile doküman sayısı ({len(documents)}) eşleşmiyor.")
+        logging.error(f"Number of IDs ({num_items}) does not match number of documents ({len(documents)}).")
         return False
     
-    # Eğer embedding'ler sağlandıysa, bunların sayısının ID'lerin sayısıyla eşleşip eşleşmediğini kontrol ediyoruz
+    # Check if the number of embeddings matches the number of IDs
     if embeddings is not None and len(embeddings) != num_items:
-        logging.error(f"ID sayısı ({num_items}) ile embedding sayısı ({len(embeddings)}) eşleşmiyor.")
+        logging.error(f"Number of IDs ({num_items}) does not match number of embeddings ({len(embeddings)}).")
         return False
     
-    # Eğer embedding'ler None ise, ChromaDB documents'ı kullanıp kendi üretir
+    # Check if the number of metadata matches the number of IDs
     if metadatas is not None and len(metadatas) != num_items:
-        logging.error(f"ID sayısı ({num_items}) ile metadata sayısı ({len(metadatas)}) eşleşmiyor.")
+        logging.error(f"Number of IDs ({num_items}) does not match number of metadata ({len(metadatas)}).")
         return False
     
-    # Eğer metadata None ise, boş sözlüklerden oluşan bir liste oluştur
+    # If metadata is None, create a list of empty dictionaries
     safe_metadatas = metadatas if metadatas is not None else [{} for _ in range(num_items)]
 
-    # Veri ekleme işlemini gerçekleştiriyoruz
+    # Perform the data addition
     try:
-        logging.info(f"'{collection.name}' koleksiyonuna {num_items} adet kayıt ekleniyor...")
+        logging.info(f"Adding {num_items} records to '{collection.name}' collection...")
         collection.add(
             ids=ids,
             embeddings=embeddings,
             documents=documents,   
             metadatas=safe_metadatas
         )
-        logging.info(f"{num_items} kayıt başarıyla eklendi. Koleksiyondaki toplam kayıt: {collection.count()}")
+        logging.info(f"{num_items} records successfully added. Total records in the collection: {collection.count()}")
         return True
     except Exception as e:
         if "ID already exists" in str(e):
-             logging.error("Hata: Eklemeye çalıştığınız ID'lerden bazıları koleksiyonda zaten mevcut.")
+             logging.error("Error: Some of the IDs you are trying to add already exist in the collection.")
         return False
 
-# ChromaDB koleksiyonunu sorgulamak için bir fonksiyon tanımlıyoruz
+# Function to query a ChromaDB collection
 def query_collection(collection: chromadb.Collection,
                      query_texts: Optional[List[str]] = None,
                      query_embeddings: Optional[List[List[float]]] = None,
@@ -122,14 +122,14 @@ def query_collection(collection: chromadb.Collection,
                      where_document_filter: Optional[Dict[str, Any]] = None,
                      include: List[str] = ["metadatas", "documents", "distances"]) -> Optional[Dict[str, Any]]:
 
-    # Sorgu metinleri ve embedding'lerin boş olup olmadığını kontrol ediyoruz
+    # Check if either query_texts or query_embeddings is provided
     if query_texts is None and query_embeddings is None:
-        logging.error("Sorgulama için 'query_texts' veya 'query_embeddings' sağlanmalıdır.")
+        logging.error("'query_texts' or 'query_embeddings' must be provided for querying.")
         return None
     
-    # Eğer hem query_texts hem de query_embeddings sağlandıysa, embedding'leri kullanmayı tercih ediyoruz
+    # If both query_texts and query_embeddings are provided, prefer query_texts
     if query_texts is not None and query_embeddings is not None:
-        logging.warning("Hem 'query_texts' hem de 'query_embeddings' sağlandı. 'query_texts' kullanılacak.")
+        logging.warning("Both 'query_texts' and 'query_embeddings' are provided. 'query_texts' will be used.")
         query_embeddings = None 
 
     results = collection.query(
@@ -140,13 +140,13 @@ def query_collection(collection: chromadb.Collection,
         where_document=where_document_filter,
         include=include
     )
-    logging.info("Sorgulama tamamlandı.")
+    logging.info("Query completed.")
     
-    # Sonuçların varlığını kontrol ediyoruz
+    # Check if any results were returned
     if results and results.get('ids'):
-            # Her sorgu için bulunan sonuç sayısını logluyoruz
+            # Log the number of results found for each query
             for i, ids_list in enumerate(results['ids']):
-                logging.debug(f"  Sorgu {i+1} için {len(ids_list)} sonuç bulundu.")
+                logging.debug(f"  {i+1} query found {len(ids_list)} results.")
     else:
-            logging.info("Sorgu için eşleşen sonuç bulunamadı.")
+            logging.info("No results found for the query.")
     return results

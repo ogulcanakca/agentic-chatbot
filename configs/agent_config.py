@@ -1,112 +1,169 @@
 # configs/agent_config.py
 
-# app/agents/fallback_agent.py için config
+# Config for app/agents/fallback_agent.py
 
-# Fallback cevabı
-FALLBACK_RESPONSE = "Üzgünüm, bu konuda size yardımcı olamıyorum. Sorunuz Resmi Gazete veya güncel haberler/genel bilgiler kapsamında değil gibi görünüyor veya isteğinizi şu anda işleyemiyorum."
+# Fallback response
+FALLBACK_RESPONSE = "Sorry, I can't help you with this. Your question doesn't seem to fall under the scope of the Official Gazette or current news/general information, or I can't process your request at the moment."
 
-# app/agents/news_agent.py için config
+# Config for app/agents/news_agent.py
 
-# Langchain Hub kullanılabiliyorsa, ReAct prompt'u oradan çekilmeye çalışılacak
-# Eğer çekilemezse, manuel olarak oluşturulmuş prompt kullanılacak
+# If Langchain Hub can be used, the ReAct prompt will be fetched from there.
+# If it cannot be fetched, a manually created prompt will be used.
 LANGCHAIN_HUB_AVAILABLE = True
 
-# Langchain Hub'dan çekilecek ReAct prompt'un path'i
+# Path of the ReAct prompt to be fetched from Langchain Hub
 REACT_HUB_PROMPT_PATH = "hwchase17/react"
 
-# Eğer hub'dan çekemezsek, manuel olarak oluşturulmuş prompt template'i kullanılacak
-MANUAL_REACT_PROMPT_TEMPLATE = """Aşağıdaki soruları olabildiğince iyi yanıtla. Şu araçlara erişimin var:
+# Manually created prompt template used if not fetched from the hub
+MANUAL_REACT_PROMPT_TEMPLATE = """Answer the following questions as best as you can. You have access to the following tools:
 
 {tools}
 
-Yanıtını oluşturmak için şu formatı kullan:
+Use the following format to structure your answer:
 
-Soru: Yanıtlaman gereken soru
-Düşünce: Yanıtı bulmak için ne yapman gerektiğini adım adım düşünmelisin. Hangi aracı kullanacağına karar ver. Araç kullanmak gerekmiyorsa doğrudan cevap verebilirsin.
-Eylem: Kullanılacak aracın adı, şunlardan biri olmalı: [{tool_names}]
-Eylem Girdisi: Araca verilecek girdi/sorgu.
-Gözlem: Aracın döndürdüğü sonuç.
-... (Bu Düşünce/Eylem/Eylem Girdisi/Gözlem döngüsü yanıtı bulana kadar veya bir limit dahilinde tekrarlanabilir)
-Düşünce: Artık nihai yanıtı biliyorum ve bunu Türkçe olarak ifade edeceğim.
-Nihai Yanıt: Orijinal soruya verilen nihai, kapsamlı ve konuşma dilinde **Türkçe** yanıt.
+Question: The question you need to answer
+Thought: Think step by step about what you need to do to find the answer. Decide which tool to use. If no tool is needed, answer directly.
+Action: The name of the tool to use. Choose one of: [{tool_names}]
+Action Input: The input/query to provide to the tool.
+Observation: The result returned by the tool.
+... (This Thought/Action/Action Input/Observation loop can repeat until the answer is found or a limit is reached)
+Thought: Now I know the final answer and I will express it in Turkish.
+Final Answer: The final, complete, and conversational **Turkish** answer to the original question.
 
-Şimdi başla!
+Begin now!
 
-Soru: {input}
-Düşünce:{agent_scratchpad}""" 
+Question: {input}
+Thought:{agent_scratchpad}"""
 
-# app/agents/resmi_gazete_agent.py için config
+# Config for app/agents/resmi_gazete_agent.py
 
-RESMI_GAZETE_COLLECTION = "resmi_gazete" 
-# Sorgu başına RAG için kaç doküman çekileceği
+RESMI_GAZETE_COLLECTION = "resmi_gazete"
+# Number of documents to retrieve per query for RAG
 NUM_DOCUMENTS_TO_RETRIEVE = 5
-# LLM'e gönderilecek prompt şablonu
-PROMPT_TEMPLATE = """Sen Resmi Gazete içerikleri konusunda uzman bir asistansın.
-Sana verilen Resmi Gazete belgeleri bağlamını kullanarak aşağıdaki kullanıcı sorusunu cevapla.
-Cevabın KESİNLİKLE sadece ve sadece sağlanan bağlamdaki bilgilere dayanmalıdır.
-Eğer cevap verilen bağlamda bulunmuyorsa, "Sağlanan belgelerde bu bilgiye rastlanmamıştır." gibi bir ifade kullan.
-Bağlam dışına çıkma, yorum yapma veya ek bilgi verme.
+# Prompt template to be sent to the LLM
+PROMPT_TEMPLATE = """You are an assistant specialized in Official Gazette contents.
+Using the provided Official Gazette documents as context, answer the user question below.
+Your answer MUST be strictly based on the information in the provided context.
+If the information is not found in the context, use a phrase like "This information was not found in the provided documents."
+Do not go beyond the context, add interpretations, or provide additional information.
 
-Kullanıcı Sorusu:
+User Question:
 {query}
 
-Resmi Gazete Belgeleri (Bağlam):
+Official Gazette Documents (Context):
 ==============================
 {context}
 ==============================
 
-Cevap:"""
+Answer:"""
 
-# app/agents/supervisor.py için config
+# Config for app/agents/supervisor.py
 
 from typing import List
-# Yönlendirme için kullanılacak geçerli kategoriler
-VALID_TARGET_CATEGORIES: List[str] = ["Resmi Gazete", "News", "Travel", "Belge Sorusu","Other"]
-# LLM geçerli bir kategori döndürmezse veya hata olursa varsayılan kategori
+# Valid categories to be used for routing
+VALID_TARGET_CATEGORIES: List[str] = ["Resmi Gazete", "News", "Travel", "Belge Sorusu", "Other"]
+# Default category if the LLM does not return a valid category or fails
 DEFAULT_TARGET_CATEGORY: str = "Other"
-# Sorguyu sınıflandırmak için LLM'e verilen prompt.
-CLASSIFICATION_PROMPT_TEMPLATE = """Görevin, aşağıda verilen kullanıcı sorgusunu analiz ederek şu beş kategoriden hangisine en uygun olduğunu belirlemektir: 
+# Prompt given to the LLM to classify the query
+CLASSIFICATION_PROMPT_TEMPLATE = """Your task is to analyze the user query below and classify it into one of the following five categories:
 
- 1.  **Resmi Gazete**: Türkiye Cumhuriyeti Resmi Gazetesi'nde yayımlanan mevzuat (kanun, KHK, yönetmelik, tebliğ vb.), Cumhurbaşkanlığı Kararnameleri, Cumhurbaşkanlığı Genelgeleri, Cumhurbaşkanı Kararları (atama/görevden alma, yatırım programları, mali düzenlemeler, uluslararası anlaşmaların onayı vb.), yargı kararları (HSK, AYM vb.), TBMM kararları, ilanlar veya ilgili idari süreçler hakkında bilgi arayan sorular. 
-     * Örnekler: "Son torba yasa ne zaman çıktı?", "Doğum Yardımı Yönetmeliği değişti mi?", "Resmi Gazete'de bugün hangi atamalar var?", "İş yerinde psikolojik tacizle ilgili yeni genelge yayımlandı mı?", "2025 Yılı Yatırım Programı açıklandı mı?"
+ 1.  **Resmi Gazete**: Questions seeking information on regulations (laws, decrees, circulars, etc.), presidential decrees, official announcements, judicial decisions, parliamentary resolutions, or administrative procedures published in the Official Gazette of the Republic of Turkey.
+     * Examples: "When was the latest omnibus bill passed?", "Was the Maternity Benefit Regulation amended?", "Which appointments are in today’s Official Gazette?", "Was there a new circular on workplace harassment?", "Was the 2025 Investment Program announced?"
 
- 2.  **News**: Güncel olaylar, haberler (politika, ekonomi, spor, magazin vb.), genel kültür bilgisi (tarih, bilim, sanat vb.), tanımlar ("X nedir?"), hava durumu, finansal piyasa verileri (döviz, borsa), veya cevabı internette/Wikipedia'da bulunabilecek diğer tüm sorular. 
-     * Örnekler: "İzmir'de yarın hava nasıl olacak?", "Enflasyon oranı yüzde kaç?", "Leonardo da Vinci kimdir?", "Türkiye'nin yüzölçümü ne kadar?", "Bugünkü maç sonuçları" 
-     
- 3.  **Travel**: Seyahat planlama, uçuşlar, oteller, destinasyonlar, güzergahlar, seyahat tavsiyeleri hakkında sorular.
+ 2.  **News**: Questions about current events, news (politics, economy, sports, entertainment), general knowledge (history, science, art), definitions ("What is X?"), weather, financial market data (exchange rates, stock market), or any other info typically found online/Wikipedia.
+     * Examples: "What's the weather like in Izmir tomorrow?", "What is the inflation rate?", "Who is Leonardo da Vinci?", "What is the area of Turkey?", "Today's match results"
 
- 4. - **Belge Sorusu**: Sorgu açıkça daha önce yüklenmiş bir belgeye, içeriğine veya özetiyle ilgiliyse ya da belgeyle ilgili bir takip sorusu (örn: 'o belgede...', '...ilgili olarak...', 'X konusunda başka ne diyor?') ile ilgili sorular. *** Belge bağlamı varsa bu kategori diğerlerine göre önceliklidir. ***
+ 3.  **Travel**: Questions about travel planning, flights, hotels, destinations, itineraries, or travel tips.
 
- 5.  **Other**: Yukarıdaki iki kategoriye girmeyen, genel sohbet ("Merhaba", "Nasılsın?", "İyi günler"), anlamsız veya eksik ifadeler ("asdf"), doğrudan talimatlar ("Bana kod yaz"), şaka/fıkra isteme gibi bu sistemin cevaplaması için tasarlanmamış diğer tüm sorgular. 
+ 4.  **Belge Sorusu**: Clearly document-related queries—either about a previously uploaded document or a follow-up referencing it (e.g., "in that document...", "regarding...", "What else does it say about X?"). *** If document context exists, this category takes priority over others. ***
 
-İşte bazı sınıflandırma örnekleri:
-Sorgu: "Son çıkan KHK'da neler var?"
-Kategori: Resmi Gazete
-Sorgu: "İstanbul'dan Ankara'ya tren bileti bakabilir misin?"
-Kategori: Travel
-Sorgu: "Yapay zeka etiği hakkında bilgi verir misin?"
-Kategori: News
-Sorgu: "Az önceki belgede belirtilen riskler nelerdi?"
-Kategori: Belge Sorusu
-Sorgu: "Merhaba nasılsın"
-Kategori: Other
-Sorgu: "O raporda bahsedilen ikinci maddeyi açıklar mısın?"
-Kategori: Belge Sorusu
+ 5.  **Other**: All other queries not fitting into the above categories—casual chat ("Hi", "How are you?", "Good day"), meaningless or incomplete phrases ("asdf"), direct commands ("Write code"), jokes, or anything this system isn’t designed to answer.
 
-Şimdi aşağıdaki sorguyu sınıflandır:
+Here are some classification examples:
+Query: "What’s in the latest decree law?"
+Category: Resmi Gazete
+Query: "Can you check train tickets from Istanbul to Ankara?"
+Category: Travel
+Query: "Can you tell me about AI ethics?"
+Category: News
+Query: "What were the risks mentioned in that document?"
+Category: Belge Sorusu
+Query: "Hello, how are you?"
+Category: Other
+Query: "Can you explain the second article in that report?"
+Category: Belge Sorusu
 
- Kullanıcı Sorgusu: 
- "{query}" 
+Now classify the following query:
 
- Bu sorguyu dikkatlice değerlendir ve YALNIZCA ve SADECE yukarıdaki **beş** kategori adından birini ('Resmi Gazete', 'News', 'Travel', 'Belge Sorusu', 'Other') cevap olarak ver. Başka hiçbir ek bilgi, açıklama veya giriş cümlesi yazma.
+User Query: 
+"{query}"
 
-Kategori:"""
+Evaluate carefully and provide ONLY and EXACTLY one of the **five** category names ('Resmi Gazete', 'News', 'Travel', 'Belge Sorusu', 'Other') as the answer. Do not include any explanation, prefix, or extra information.
 
-RAG_PROMPT_TEMPLATE = """Sadece aşağıda verilen bağlamı (context) kullanarak soruyu yanıtlayınız. Bağlam dışına çıkmayınız. Eğer cevap bağlamda bulunmuyorsa, 'Bilgi aktif belgede bulunamadı.' deyin.
+Category:"""
 
-Bağlam:
+RAG_PROMPT_TEMPLATE = """Answer the question using ONLY the context provided below. Do NOT go beyond the context. If the answer is not in the context, respond with: 'The information was not found in the active document.'
+
+Context:
 {context}
 
-Soru: {question}
+Question: {question}
 
-Yanıt:"""
+Answer:"""
+
+# app/travel_system/agents/coordinator_agent.py
+
+TRAVEL_COORDINATOR_SYSTEM_MESSAGE = """You are the Travel Coordinator Agent. You are responsible for compiling information from other agents into a final, user-friendly travel plan in Turkish.
+
+You receive summaries for:
+- Date and Budget
+- Destination Information (including City Info, Weather, Hotel Booking Links, and Map View URL)
+
+Your Task:
+Synthesize ALL provided information into a fluent and readable TURKISH travel plan. Use the following EXACT headings:
+1. Seyahat Özeti
+2. Bütçe ve Kur Bilgisi
+3. Hava Durumu ve Kıyafet Önerileri
+4. Gezilecek Yerler
+5. Konaklama Önerileri
+6. Harita Görünümü
+
+Important:
+- Your response MUST be ONLY the final TURKISH plan under these headings.
+- Extract the relevant information for each heading from the provided summaries.
+- Under heading 5 ('Konaklama Önerileri'), list the hotel booking site links provided in the Destination Summary. Do not invent hotel details.
+- CRITICAL: Ensure the Map View URL (or error message about the map) from the Destination Summary is included under the 'Harita Görünümü' heading.
+- If any information is missing or indicates an error (like missing links), note this politely in the relevant section.
+- You should NOT call any tools yourself. You only compile the provided text summaries.
+"""
+
+# app/travel_system/agents/date_budget_agent.py
+
+DATE_BUDGET_AGENT_SYSTEM_MESSAGE = """You are the Date and Budget Agent, responsible for managing travel dates and budget calculations and presenting a summary.
+Your specific tasks include:
+
+1. Use the `get_exchange_rates_and_budget` tool to find exchange rates for the destination and assess the provided budget in local currency.
+2. Use the `calculate_travel_dates` tool to confirm travel dates (in 'YYYY-MM-DD' format) based on natural language description and duration.
+3. Combine the results from these tools into a concise Turkish summary covering confirmed travel dates, budget assessment, and key exchange rates (TRY, EUR, USD).
+
+Important:
+- Use the provided tools to get accurate information.
+- Clearly deliver the summary in Turkish.
+"""
+
+
+DESTINATION_RESEARCH_AGENT_SYSTEM_MESSAGE = """You are the Destination Research Agent. Your goal is to gather travel information and present it clearly in Turkish.
+
+**Your Tasks:**
+1. Use the `search_city_info` function for the DESTINATION city.
+2. Use the `get_weather_forecast` function for the DESTINATION city and travel dates.
+3. Use the `Google_Hotels_with_tavily` function for the DESTINATION city and travel dates. Pay attention to any limitations.
+4. Use the `get_tomtom_map_url` function with parameter `city_name`=DESTINATION to obtain a map URL.
+(If you are using the POI map tool: 4. Extract places from the text in Task 1. Call `generate_destination_map_with_pois` with the destination and places text.)
+
+**Output Requirements:**
+- Combine the results into a single, comprehensive Turkish response.
+- Structure EXACTLY with the following Turkish headings: 'Şehir Bilgileri', 'Hava Durumu/Kıyafet Önerileri', 'Otel Seçenekleri', 'Harita Görünümü'.
+- VERY IMPORTANT: Include the map tool output under the 'Harita Görünümü' heading. If there are any errors, please point them out.
+- ONLY respond in Turkish. Do not include your thoughts.
+"""

@@ -5,14 +5,14 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# RecursiveCharacterTextSplitter'u kullanan metin temizleme fonksiyonumuzu tanımlıyoruz
+# We define our text cleaning function that uses RecursiveCharacterTextSplitter
 def split_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> list[str]:
 
-    # Metin boşsa veya None ise boş bir liste döndürüyoruz
+    # If the text is empty or None, we return an empty list
     if not text:
         return []
     try:
-        # Metni paragraflara, sonra cümlelere, sonra kelimelere göre bölmeye çalışıyoruz
+        # We try to split the text into paragraphs, then sentences, then words
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -21,9 +21,9 @@ def split_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> l
             separators=["\n\n", "\n", ". ", ", ", " ", ""], 
         )
         chunks = text_splitter.split_text(text)
-        # Sadece boşluklardan oluşan veya çok kısa chunkları filtreleyiyoruz
+        # We filter out chunks that consist only of spaces or are too short
         chunks = [chunk for chunk in chunks if chunk.strip()]
         return chunks
     except Exception as e:
-        logging.error(f"Metin bölünürken hata oluştu: {e}", exc_info=True)
+        logging.error(f"Error occurred while splitting text: {e}", exc_info=True)
         return []

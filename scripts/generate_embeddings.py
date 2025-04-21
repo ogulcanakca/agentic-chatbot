@@ -16,17 +16,17 @@ from configs.script_config import DATA_FOLDERS, PROCESSED_DATA_DIR, PROCESSING_B
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
-# JSON formatındaki işlenmiş verilerimizi batch'ler halinde okuma fonksionu
+# Function for reading our processed data in JSON format in batches
 def read_processed_data_batch(file_path: Path, batch_size: int) -> Iterator[Tuple[List[str], List[str], List[Dict[str, Any]]]]:
 
-    # Batch'ler için boş listeler
+    # Empty lists for batches
     batch_ids: List[str] = []
     batch_documents: List[str] = []
     batch_metadatas: List[Dict[str, Any]] = []
     processed_line_count = 0
 
-    # Her satırda bir adet işlenmiş veri (haber) satır satır olduğu için
-    # dosyayı satır satır okuyup işliyoruz
+    # Since each processed data (news) is on its own line,
+    # we read and process the file line by line
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
@@ -37,66 +37,66 @@ def read_processed_data_batch(file_path: Path, batch_size: int) -> Iterator[Tupl
                     doc_text = record.get('text')
                     doc_metadata = record.get('metadata')
 
-                    # Temel kontrolleri (ID, text ve metadata'nın varlığı ve türü) sağlıyoruz
+                    # Performing basic checks for the existence and type of ID, text, and metadata
                     if not doc_id or not isinstance(doc_id, (str, int)):
-                        logging.warning(f"Satır {processed_line_count}: Geçersiz veya eksik 'id', atlanıyor.")
+                        logging.warning(f"Line {processed_line_count}: Invalid or missing 'id', skipping.")
                         continue
                     if not doc_text or not isinstance(doc_text, str):
-                        logging.warning(f"Satır {processed_line_count}: Geçersiz veya eksik 'text', atlanıyor.")
+                        logging.warning(f"Line {processed_line_count}: Invalid or missing 'text', skipping.")
                         continue
                     if doc_metadata is None or not isinstance(doc_metadata, dict):
                         doc_metadata = {}
 
-                    # ID'leri ve metinleri batch listelerine ekliyoruz
+                    # Add IDs and texts to the batch lists
                     batch_ids.append(str(doc_id))
                     batch_documents.append(doc_text)
                     batch_metadatas.append(doc_metadata)
 
-                    # batch_ids, batch_documents, batch_metadatas için batch dolduysa veriyi yield edip batch listesini temizliyoruz
-                    # return'e nazaran yield kullanıyoruz ki bellekteki yükü azaltalım (batch boyutuna ulaşınca veriyi gönderiyoruz)
+                    # If the batch lists have reached the batch size, yield them and reset
+                    # We use yield instead of return to reduce memory load by sending data as soon as the batch size is reached
                     if batch_size is not None and batch_size > 0 and len(batch_ids) >= batch_size:
                         yield batch_ids, batch_documents, batch_metadatas
                         batch_ids, batch_documents, batch_metadatas = [], [], []
 
-                # JSON decode hatası veya diğer beklenmedik hatalar için loglama yapıyoruz
+                # Log JSON decode errors or other unexpected errors
                 except json.JSONDecodeError:
-                    logging.warning(f"Satır {processed_line_count}: Geçersiz JSON formatı, atlanıyor: {line.strip()}")
+                    logging.warning(f"Line {processed_line_count}: Invalid JSON format, skipping: {line.strip()}")
                     continue
                 except Exception as e:
-                    logging.error(f"Satır {processed_line_count} işlenirken beklenmedik hata: {e}", exc_info=True)
-                    continue # Bu satırı atla, devam etmeye çalış
+                    logging.error(f"Unexpected error processing line {processed_line_count}: {e}", exc_info=True)
+                    continue  # Skip this line and continue
 
-        # Batch'ler halinde işleme sonucu dosya sonundaki kalan PROCESSING_BATCH_SIZE'dan az olan veriyi de yield ediyoruz.
+        # Yield any remaining data less than PROCESSING_BATCH_SIZE as a batch after processing the file
         if batch_ids:
             yield batch_ids, batch_documents, batch_metadatas
 
-    # Dosya okuma hatası durumunda loglama yapıyoruz ve boş listeler döndürüyoruz
+    # Log errors when reading the file and return empty lists
     except IOError as e:
-        logging.error(f"İşlenmiş veri dosyası okunamadı: {file_path}. Hata: {e}")
-        yield [], [], [] 
+        logging.error(f"Could not read processed data file: {file_path}. Error: {e}")
+        yield [], [], []
     except Exception as e:
-        logging.error(f"Veri okunurken genel hata ({file_path}): {e}", exc_info=True)
+        logging.error(f"General error while reading data ({file_path}): {e}", exc_info=True)
         yield [], [], []
 
-# Veri kaynağını işleyip embedding'leri üretip veritabanına ekleme fonksiyonumuzu tanımlıyoruz
+# Define our function to process the data source, generate embeddings, and add to the database
 def process_and_add_batch(collection, ids, documents, metadatas) -> int:
 
-    # ID boşsa 0 döndürüp batch'yi atlıyoruz ve embeding üretmiyoruz
+    # If IDs list is empty, return 0, skip the batch and do not generate embeddings
     if not ids:
         return 0
     
     batch_start_time = time.time()
-    logging.debug(f"'{collection.name}' için {len(ids)} adetlik batch işleniyor...")
+    logging.debug(f"Processing batch of {len(ids)} items for collection '{collection.name}'...")
 
-    # Embedding üretiyoruz
+    # Generate embeddings
     embeddings = generate_embeddings(documents)
 
-    # Eğer embedding'ler boşsa veya ID'lerle eşleşmiyorsa hata loglayıp 0 döndürüyoruz
+    # If embeddings are empty or don't match the IDs count, log an error and return 0
     if not embeddings or len(embeddings) != len(ids):
-        logging.error(f"Batch için embedding üretilemedi veya sayı eşleşmiyor ({len(embeddings)} vs {len(ids)}). Bu batch veritabanına eklenmeyecek.")
+        logging.error(f"Could not generate embeddings for the batch or count mismatch ({len(embeddings)} vs {len(ids)}). This batch will not be added to the database.")
         return 0 
 
-    # Veriyi ChromaDB'ye ekliyoruz
+    # Add data to ChromaDB
     success = add_data_to_collection(
         collection=collection,
         ids=ids,
@@ -107,86 +107,87 @@ def process_and_add_batch(collection, ids, documents, metadatas) -> int:
 
     batch_end_time = time.time()
     if success:
-        logging.debug(f"{len(ids)} kayıtlık batch başarıyla {batch_end_time - batch_start_time:.2f} saniyede eklendi.")
-        return len(ids) # Başarılı ekleme sayısını ve 
+        logging.debug(f"Batch of {len(ids)} records added successfully in {batch_end_time - batch_start_time:.2f} seconds.")
+        return len(ids)
     else:
-        logging.error(f"{len(ids)} kayıtlık batch veritabanına eklenirken hata oluştu.")
-        return 0 # başarısız olma durumda 0 döndürüyoruz
+        logging.error(f"Error occurred while adding batch of {len(ids)} records to the database.")
+        return 0
 
-# Script'imizin main fonksiyonunu tanımlıyoruz
+# Define the main function of our script
 def main():
-    logging.info("Embedding üretme ve veritabanına yükleme script'i başlatılıyor...")
-    logging.info(f"İşlenecek Kaynaklar: {DATA_FOLDERS}")
-    logging.info(f"Okuma/İşleme Batch Boyutu: {PROCESSING_BATCH_SIZE if PROCESSING_BATCH_SIZE else 'Tümü Tek Seferde'}")
+    logging.info("Starting embedding generation and database loading script...")
+    logging.info(f"Sources to process: {DATA_FOLDERS}")
+    logging.info(f"Read/Process Batch Size: {PROCESSING_BATCH_SIZE if PROCESSING_BATCH_SIZE else 'All at once'}")
     script_start_time = time.time()
 
-    # Embedding modelini ve ChromaDB client'ı yüklüyoruz
-    logging.info("Gerekli bileşenler ön yükleniyor (Embedding Modeli & ChromaDB Client)...")
+    # Preload required components (Embedding Model & ChromaDB Client)
+    logging.info("Preloading required components (Embedding Model & ChromaDB Client)...")
     get_embedding_model()
     get_chroma_client()
-    logging.info("Ön yükleme tamamlandı.")
+    logging.info("Preloading completed.")
 
-    # Total işlem sayıları için değişkenlerimizi tanımlıyoruz
+    # Variables for total counts
     total_processed_records = 0
     total_added_to_db = 0
 
-    # Veri kaynaklarımız üzerinde döngü başlatıyoruz
+    # Loop over our data sources
     for source_name in DATA_FOLDERS:
-        logging.info(f"=== Kaynak işleniyor: '{source_name}' ===")
+        logging.info(f"=== Processing source: '{source_name}' ===")
         source_start_time = time.time()
-        processed_file = PROCESSED_DATA_DIR / source_name / f"{source_name}_processed.jsonl" # İşlenmiş veri dosyası yolumuz
+        processed_file = PROCESSED_DATA_DIR / source_name / f"{source_name}_processed.jsonl"  # Path to the processed data file
 
-        # İşlenmiş veri dosyası yoksa kaynağı atlıyoruz
+        # Skip the source if the processed data file doesn't exist
         if not processed_file.is_file():
-            logging.warning(f"İşlenmiş veri dosyası bulunamadı, '{source_name}' kaynağı atlanıyor: {processed_file}")
+            logging.warning(f"Processed data file not found, skipping source '{source_name}': {processed_file}")
             print("-" * 50)
             continue
 
-        # İlgili ChromaDB koleksiyonunu alıp oluşturuyoruz
+        # Get or create the relevant ChromaDB collection
         collection = get_or_create_collection(source_name)
         if not collection:
-            logging.error(f"'{source_name}' için ChromaDB koleksiyonu alıp oluşturulamadı. Bu kaynak atlanıyor.")
+            logging.error(f"Could not get or create ChromaDB collection for '{source_name}'. Skipping this source.")
             print("-" * 50)
             continue
 
-        # Kaynak işleme sayıları için değişkenlerimizi tanımlıyoruz
+        # Initialize counters for this source
         source_processed_count = 0
         source_added_count = 0
 
-        # Veriyi batch'ler halinde okuyup işliyoruz
+        # Read and process data in batches
         data_generator = read_processed_data_batch(processed_file, PROCESSING_BATCH_SIZE)
 
-        # Her batch için döngü başlatıyoruz
+        # Loop over each batch
         for batch_ids, batch_documents, batch_metadatas in data_generator:
-            if not batch_ids: # Eğer okuma sırasında hata olduysa veya dosya boşsa
-                 logging.warning(f"'{source_name}' kaynağından veri okunamadı veya dosya boş.")
-                 break # bu kaynağı işlemeyi durduruyoruz
+            # If there was an error reading or no data was read
+            if not batch_ids:
+                logging.warning(f"Data could not be read from source '{source_name}' or it is empty.")
+                break  # Stop processing this source
 
-            # Batch'leri işleyip veritabanına ekliyoruz
+            # Process batches and add to the database
             source_processed_count += len(batch_ids)
             added_count = process_and_add_batch(collection, batch_ids, batch_documents, batch_metadatas)
             source_added_count += added_count
-            logging.info(f"Kaynak '{source_name}': {source_processed_count} kayıt okundu, {source_added_count} veritabanına eklendi...")
+            logging.info(f"Source '{source_name}': {source_processed_count} records read, {source_added_count} added to the database...")
 
         source_end_time = time.time()
-        # Kaynak işleme sayıları toplamına ekliyoruz
+        # Add source counts to totals
         total_processed_records += source_processed_count
         total_added_to_db += source_added_count
 
-        logging.info(f"Kaynak '{source_name}' tamamlandı.")
-        logging.info(f"  Okunan kayıt sayısı: {source_processed_count}")
-        logging.info(f"  Veritabanına eklenen kayıt sayısı: {source_added_count}")
-        logging.info(f"  Geçen süre: {source_end_time - source_start_time:.2f} saniye.")
-        logging.info(f"  '{source_name}' koleksiyonundaki güncel kayıt sayısı: {collection.count()}")
+        logging.info(f"Source '{source_name}' completed.")
+        logging.info(f"  Number of records read: {source_processed_count}")
+        logging.info(f"  Number of records added to the database: {source_added_count}")
+        logging.info(f"  Elapsed time: {source_end_time - source_start_time:.2f} seconds.")
+        logging.info(f"  Updated record count in '{source_name}' collection: {collection.count()}")
         print("-" * 50)
 
     script_end_time = time.time()
-    logging.info("=== Tüm Kaynakların İşlenmesi Tamamlandı ===")
-    logging.info(f"Toplam okunan kayıt sayısı: {total_processed_records}")
-    logging.info(f"Toplam veritabanına eklenen kayıt sayısı: {total_added_to_db}")
-    logging.info(f"Toplam geçen süre: {script_end_time - script_start_time:.2f} saniye.")
+    logging.info("=== All sources processing completed ===")
+    logging.info(f"Total number of records read: {total_processed_records}")
+    logging.info(f"Total number of records added to the database: {total_added_to_db}")
+    logging.info(f"Total elapsed time: {script_end_time - script_start_time:.2f} seconds.")
 
 if __name__ == "__main__":
-    # Script'i çalıştırmadan önce news_fetcher.py ve resmi_news_fetcher.py'nin çağırılıp verileri edindiğinizden ve
-    # process_data.py script'inin çağırılıp edinilen verilerin işlendiğinden emin olun
+    # Before running the script, make sure news_fetcher.py and resmi_news_fetcher.py have been called to retrieve the data and
+    # that the process_data.py script has been executed to process the retrieved data
     main()

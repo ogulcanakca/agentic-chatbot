@@ -8,11 +8,11 @@ def delete_data_directory(data_dir_path):
     if data_dir.exists() and data_dir.is_dir():
         try:
             shutil.rmtree(data_dir)
-            print(f"'{data_dir_path}' veri dizini ve içeriği başarıyla silindi.")
+            print(f"The data directory '{data_dir_path}' and its contents were successfully deleted.")
         except OSError as e:
-            print(f"'{data_dir_path}' dizini silinirken hata oluştu: {e}")
+            print(f"An error occurred while deleting the directory '{data_dir_path}': {e}")
     else:
-        print(f"'{data_dir_path}' veri dizini mevcut değil veya bir dizin değil.")
+        print(f"The path '{data_dir_path}' either does not exist or is not a directory.")
 
 if __name__ == "__main__":
     data_directory_to_delete = Path(__file__).resolve().parents[1] / "data"

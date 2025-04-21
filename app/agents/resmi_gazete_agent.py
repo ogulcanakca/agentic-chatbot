@@ -15,26 +15,26 @@ from configs.agent_config import RESMI_GAZETE_COLLECTION, NUM_DOCUMENTS_TO_RETRI
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
-# İlgili dokümanlar kullanılarak cevap üretmek için kullanılan fonksiyonumuz
+# Function used to generate an answer using relevant documents
 def generate_resmi_gazete_answer(state: Dict[str, Any]) -> Dict[str, Any]:
 
-    logging.info("Resmi Gazete Agent çalıştırılıyor...")
+    logging.info("Resmi Gazete Agent is running...")
     query: Optional[str] = state.get("query")
     final_answer: Optional[str] = None
     retrieved_context: Optional[str] = None
-    source_info = f"Resmi Gazete (Koleksiyon: {RESMI_GAZETE_COLLECTION})" # Kaynağı detaylı belirtiyoruz
+    source_info = f"Resmi Gazete (Collection: {RESMI_GAZETE_COLLECTION})"  # Detailed source info
 
-    # Sorguyu kontrol ediyoruz var mı yok mu diye
+    # Check whether query exists or not
     if not query:
-        logging.error("Resmi Gazete Agent: State içinde geçerli bir 'query' bulunamadı.")
-        final_answer = "Anlaşılamayan veya eksik bir sorgu aldım. Lütfen sorunuzu tekrar iletin."
-        source_info += " (Hata: Eksik Sorgu)"
+        logging.error("Resmi Gazete Agent: No valid 'query' found in the state.")
+        final_answer = "I received an unrecognized or incomplete query. Please try rephrasing your question."
+        source_info += " (Error: Missing Query)"
         return {"answer": final_answer, "context": None, "source": source_info}
 
-    logging.info(f"İşlenecek sorgu: '{query}'")
+    logging.info(f"Query to be processed: '{query}'")
 
-    # İlgili dokümanları çekiyoruz
-    logging.debug(f"'{RESMI_GAZETE_COLLECTION}' koleksiyonundan dokümanlar çekiliyor...")
+    # Retrieve relevant documents
+    logging.debug(f"Fetching documents from collection '{RESMI_GAZETE_COLLECTION}'...")
     try:
         retrieved_docs = retrieve_documents(
             query=query,
@@ -42,60 +42,58 @@ def generate_resmi_gazete_answer(state: Dict[str, Any]) -> Dict[str, Any]:
             n_results=NUM_DOCUMENTS_TO_RETRIEVE
         )
     except Exception as e:
-        logging.error(f"Doküman çekme sırasında hata oluştu: {e}", exc_info=True)
-        final_answer = "Resmi Gazete belgelerine erişirken bir sorun oluştu."
-        source_info += " (Hata: Doküman Çekme)"
+        logging.error(f"Error occurred while retrieving documents: {e}", exc_info=True)
+        final_answer = "An issue occurred while accessing Resmi Gazete documents."
+        source_info += " (Error: Document Retrieval)"
         return {"answer": final_answer, "context": None, "source": source_info}
 
-    # Dokümanlar, ilgili belgelerde bulunamadıysa
+    # If no relevant documents were found
     if not retrieved_docs:
-        logging.warning("Sorgu için ilgili Resmi Gazete dokümanı bulunamadı.")
-        final_answer = f"'{query}' sorgunuzla doğrudan ilgili bir Resmi Gazete belgesi bulamadım. Farklı anahtar kelimelerle tekrar deneyebilirsiniz."
-        source_info += " (Sonuç Bulunamadı)"
+        logging.warning("No relevant Resmi Gazete document found for the query.")
+        final_answer = f"I couldn't find a Resmi Gazete document directly related to your query '{query}'. You can try again with different keywords."
+        source_info += " (No Results Found)"
         retrieved_context = None
-    # veya formatlanmadıysa LLM'e boş context göndermemek için burada cevap oluşturuyoruz
+    # Or if the documents were not formatted properly, don't send an empty context to the LLM
     else:
-        logging.info(f"{len(retrieved_docs)} adet ilgili doküman bulundu.")
+        logging.info(f"{len(retrieved_docs)} relevant document(s) found.")
         try:
             retrieved_context = format_context(retrieved_docs)
-            if not retrieved_context: # Formatlama sonucu boş string dönerse (örn. içerik yoksa)
-                 logging.warning("Dokümanlar bulundu ancak formatlanmış context boş.")
-                 final_answer = "İlgili belgeler bulundu ancak içerikleri işlenemedi veya boştu."
-                 source_info += " (Hata: Boş Context)"
-                 retrieved_context = "Formatlanmış context boş."
+            if not retrieved_context:  # If formatted context returns an empty string (e.g., no content)
+                logging.warning("Documents found but formatted context is empty.")
+                final_answer = "Relevant documents were found but their content was either empty or unprocessable."
+                source_info += " (Error: Empty Context)"
+                retrieved_context = "Formatted context is empty."
             else:
-                 # Context başarıyla formatlandı, LLM'e geçebiliriz
-                 pass
+                # Context successfully formatted, ready to send to LLM
+                pass
         except Exception as e:
-            logging.error(f"Context formatlama sırasında hata oluştu: {e}", exc_info=True)
-            final_answer = "Resmi Gazete belgeleri işlenirken bir sorun oluştu."
-            source_info += " (Hata: Formatlama)"
-            retrieved_context = f"Formatlama Hatası: {e}"
+            logging.error(f"Error occurred while formatting context: {e}", exc_info=True)
+            final_answer = "An issue occurred while processing Resmi Gazete documents."
+            source_info += " (Error: Formatting)"
+            retrieved_context = f"Formatting Error: {e}"
             return {"answer": final_answer, "context": retrieved_context, "source": source_info}
 
-
-    # 4. Eğer context varsa cevap üretiyoruz 
-    if retrieved_context and not final_answer: # Context varsa ve henüz bir hata yoksa
+    # If context exists and no error yet, generate answer using LLM
+    if retrieved_context and not final_answer:
         try:
-            # app.core.llm'den varsayılan LLM'i alıyoruz
-            logging.debug("LLM örneği alınıyor...")
+            # Get default LLM instance from app.core.llm
+            logging.debug("Getting LLM instance...")
             llm = get_llm()
 
-            # LLM'e gönderilecek prompt'u hazırlıyoruz
+            # Prepare prompt to send to LLM
             prompt = PROMPT_TEMPLATE.format(query=query, context=retrieved_context)
-            logging.debug(f"LLM'e gönderilecek prompt (ilk 500 karakter):\n{prompt[:500]}...")
+            logging.debug(f"Prompt to be sent to LLM (first 500 chars):\n{prompt[:500]}...")
 
-            # LLM'i çağırıyoruz ve cevabı alıyoruz
-            logging.info("LLM çağrılıyor (generate_resmi_gazete_answer)...")
+            # Invoke LLM and get response
+            logging.info("Calling LLM (generate_resmi_gazete_answer)...")
             llm_response = llm.invoke(prompt)
             final_answer = llm_response.content.strip()
-            logging.info("LLM'den cevap alındı.")
-            source_info += " (RAG ile Üretildi)"
-        # Eğer LLM çağrılırken bir hata oluşursa, bunu yakalıyoruz
+            logging.info("Received response from LLM.")
+            source_info += " (Generated via RAG)"
         except Exception as e:
-            logging.error(f"Resmi Gazete cevabı üretilirken LLM hatası: {e}", exc_info=True)
-            final_answer = "İlgili bilgiler bulundu ancak cevabı sentezlerken bir sorun oluştu."
-            source_info += " (Hata: LLM)"
+            logging.error(f"Error during LLM generation for Resmi Gazete answer: {e}", exc_info=True)
+            final_answer = "Relevant information was found, but there was a problem synthesizing the answer."
+            source_info += " (Error: LLM)"
 
-    logging.info(f"Resmi Gazete Agent tamamlandı. Cevap (ilk 100 karakter): '{final_answer[:100] if final_answer else 'Yok'}'")
+    logging.info(f"Resmi Gazete Agent finished. Answer (first 100 characters): '{final_answer[:100] if final_answer else 'None'}'")
     return {"answer": final_answer, "context": retrieved_context, "source": source_info}

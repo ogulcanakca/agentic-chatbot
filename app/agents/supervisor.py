@@ -13,67 +13,66 @@ from configs.agent_config import VALID_TARGET_CATEGORIES, DEFAULT_TARGET_CATEGOR
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
-# Sorgu sınıflandırma için kullanılan fonksiyon
+# Function used for query classification
 def classify_query(state: Dict[str, Any]) -> Dict[str, Any]:
 
-    logging.info("Supervisor Agent çalıştırılıyor (Sorgu Sınıflandırma)...")
+    logging.info("Supervisor Agent is running (Query Classification)...")
     query: Optional[str] = state.get("query")
-    # Başlangıçta varsayılan kategoriye ayarlayalıyoruz
+    # Initially, we set it to the default category
     classification_decision = DEFAULT_TARGET_CATEGORY
     source_info = "Supervisor"
 
-    # Geçerli bir sorgu bulunamadıysa kategori 'Other' olarak ayarlanacak veya
+    # If there is no valid query, set category to 'Other'
     if not query or not query.strip():
-        logging.warning("Supervisor: State'de geçerli bir sorgu bulunamadı veya sorgu boş. Kategori 'Other' olarak ayarlandı.")
+        logging.warning("Supervisor: No valid query found in state or the query is empty. Category set to 'Other'.")
         classification_decision = "Other"
-        source_info += " (Hata: Boş Sorgu)"
-    # eğer sorgu geçerliyse sınıflandırma yapacağız
+        source_info += " (Error: Empty Query)"
+    # If the query is valid, proceed with classification
     else:
-        logging.info(f"Sınıflandırılacak sorgu: '{query}'")
+        logging.info(f"Query to be classified: '{query}'")
         try:
-            # LLM'i çağırıyoruz 0.0 temperature ile. Çünkü sınıflandırma yapıyoruz sorguyu ve kesin bir kategori döndürmesini istiyoruz.
+            # We call the LLM with temperature 0.0 for deterministic output
             llm = get_llm(temperature=0.0)
 
-            # Prompt'u oluşturuyoruz
+            # Create the prompt
             category_list_str = ", ".join([f"'{cat}'" for cat in VALID_TARGET_CATEGORIES])
             prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(
                 query=query,
-                category_list_str=category_list_str # Prompt içinde kategori listesini geçiyoruz
+                category_list_str=category_list_str
             )
-            logging.debug("Sınıflandırma prompt'u LLM'e gönderiliyor...")
-            # LLM'e sorguyu gönderiyoruz
+            logging.debug("Classification prompt is being sent to the LLM...")
+            # Send the prompt to the LLM
             response = llm.invoke(prompt)
             llm_output = response.content.strip()
-            logging.info(f"LLM sınıflandırma çıktısı (ham): '{llm_output}'")
+            logging.info(f"Raw LLM classification output: '{llm_output}'")
 
-            # LLM'in sadece kategori adını döndürdüğünden emin oluyoruz
+            # Ensure LLM only returns a valid category name
             if llm_output in VALID_TARGET_CATEGORIES:
                 classification_decision = llm_output
-                logging.info(f"Sorgu başarıyla sınıflandırıldı: '{classification_decision}'")
-                source_info += " (LLM Başarılı)"
+                logging.info(f"Query successfully classified: '{classification_decision}'")
+                source_info += " (LLM Successful)"
             else:
-                # Eğer LLM beklenenden farklı bir şey döndürürse
-                # yine de çıktının içinde geçerli kategori var mı diye kontrol ediyoruz
+                # If the LLM output doesn't match exactly, check if a valid category is inside the response
                 found_category = None
                 for valid_cat in VALID_TARGET_CATEGORIES:
                     if valid_cat in llm_output:
                         found_category = valid_cat
-                        logging.warning(f"LLM çıktısı '{llm_output}' tam olarak eşleşmedi ama içinde geçerli kategori '{found_category}' bulundu. Bu kategori kullanılacak.")
+                        logging.warning(f"LLM output '{llm_output}' does not exactly match, but valid category '{found_category}' found within. Using this category.")
                         break
                 if found_category:
-                     classification_decision = found_category
-                     source_info += " (LLM Kısmen Başarılı)"
+                    classification_decision = found_category
+                    source_info += " (LLM Partially Successful)"
                 else:
-                     # Geçerli kategori hiç bulunamazsa varsayılana dönüyor
-                     logging.error(f"LLM çıktısı '{llm_output}' geçerli kategorilerle ({VALID_TARGET_CATEGORIES}) eşleşmiyor veya içinde bulunamıyor! Varsayılan kategori '{DEFAULT_TARGET_CATEGORY}' kullanılacak.")
-                     classification_decision = DEFAULT_TARGET_CATEGORY
-                     source_info += " (Hata: Geçersiz LLM Çıktısı)"
-        # LLM çağrısı sırasında bir hata olursa varsayılan kategori dönüyoruz
+                    # If no valid category is found at all, revert to default
+                    logging.error(f"LLM output '{llm_output}' does not match or contain any valid categories ({VALID_TARGET_CATEGORIES})! Default category '{DEFAULT_TARGET_CATEGORY}' will be used.")
+                    classification_decision = DEFAULT_TARGET_CATEGORY
+                    source_info += " (Error: Invalid LLM Output)"
+        # If an error occurs during LLM call, fallback to default
         except Exception as e:
-            logging.error(f"Sorgu sınıflandırması sırasında hata: {e}", exc_info=True)
+            logging.error(f"Error during query classification: {e}", exc_info=True)
             classification_decision = DEFAULT_TARGET_CATEGORY
-            source_info += f" (Hata: {type(e).__name__})"
+            source_info += f" (Error: {type(e).__name__})"
 
-    # LangGraph state'ine 'classification' anahtarını ekleyerek döndürüyoruz
-    logging.info(f"Supervisor tamamlandı. Sonuç Sınıflandırma: '{classification_decision}'")
+    # Return with the 'classification' key added to the LangGraph state
+    logging.info(f"Supervisor completed. Final Classification Result: '{classification_decision}'")
     return {"classification": classification_decision}

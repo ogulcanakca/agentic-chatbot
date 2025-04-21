@@ -16,95 +16,92 @@ from configs.agent_config import LANGCHAIN_HUB_AVAILABLE, REACT_HUB_PROMPT_PATH,
 from app.tools.external_apis import wikipedia_tool, web_search_tool
 from app.core.llm import get_llm
 
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
 NEWS_AGENT_TOOLS = [wikipedia_tool, web_search_tool]
 
-# Agent Executor'ı her seferinde oluşturmak yerine cache'liyoruz
+# We cache the AgentExecutor instead of creating it every time
 agent_executor: Optional[AgentExecutor] = None
 
-# Agent Executor'ı almak veya oluşturmak için kullanılan fonksiyon
+# Function used to get or create the AgentExecutor
 def get_news_agent_executor() -> Optional[AgentExecutor]:
     global agent_executor
     if agent_executor:
-        logging.debug("Önbellekten News Agent Executor döndürülüyor.")
+        logging.debug("Returning News Agent Executor from cache.")
         return agent_executor
 
-    logging.info("Yeni News Agent Executor oluşturuluyor...")
+    logging.info("Creating new News Agent Executor...")
     try:
         llm = get_llm(temperature=0.7)
-
         tools = NEWS_AGENT_TOOLS
-
         prompt = None
-        
-        # Eğer Langchain Hub kullanılabiliyorsa, ReAct prompt'u oradan çekilmeye çalışılacak
-        # Eğer çekilemezse, manuel olarak oluşturulmuş prompt kullanılacak
+
+        # If Langchain Hub is available, try fetching the ReAct prompt from there.
+        # If not, fall back to the manually created prompt.
         if LANGCHAIN_HUB_AVAILABLE:
             try:
                 prompt = hub.pull(REACT_HUB_PROMPT_PATH)
-                logging.info(f"Langchain Hub'dan prompt çekildi: {REACT_HUB_PROMPT_PATH}")
+                logging.info(f"Prompt fetched from Langchain Hub: {REACT_HUB_PROMPT_PATH}")
             except Exception as e:
-                logging.warning(f"Langchain Hub'dan prompt çekilemedi ({e}). Manuel prompt kullanılacak.")
-                prompt = None 
+                logging.warning(f"Failed to fetch prompt from Langchain Hub ({e}). Using manual prompt instead.")
+                prompt = None
 
-        if prompt is None: 
-             tool_descriptions = "\n".join([f"{t.name}: {t.description}" for t in tools])
-             tool_names = ", ".join([t.name for t in tools])
-             prompt = PromptTemplate.from_template(MANUAL_REACT_PROMPT_TEMPLATE).partial(
-                 tools=tool_descriptions,
-                 tool_names=tool_names
-             )
-             logging.info("Manuel ReAct prompt kullanılıyor.")
+        if prompt is None:
+            tool_descriptions = "\n".join([f"{t.name}: {t.description}" for t in tools])
+            tool_names = ", ".join([t.name for t in tools])
+            prompt = PromptTemplate.from_template(MANUAL_REACT_PROMPT_TEMPLATE).partial(
+                tools=tool_descriptions,
+                tool_names=tool_names
+            )
+            logging.info("Using manually defined ReAct prompt.")
 
-        # News agent'ı oluşturuyoruz
+        # Create the news agent
         agent = create_react_agent(llm, tools, prompt)
         agent_executor = AgentExecutor(
             agent=agent,
             tools=tools,
-            verbose=True,  
+            verbose=True,
             handle_parsing_errors=True,
             max_iterations=6
         )
-        logging.info("News Agent Executor başarıyla oluşturuldu.")
+        logging.info("News Agent Executor successfully created.")
         return agent_executor
 
     except Exception as e:
-        logging.error(f"News Agent Executor oluşturulurken hata: {e}", exc_info=True)
+        logging.error(f"Error while creating News Agent Executor: {e}", exc_info=True)
         return None
 
-# Agent'ı çalıştırmak için kullanılan fonksiyon
+# Function used to run the agent
 def handle_news_query(state: Dict[str, Any]) -> Dict[str, Any]:
-    logging.info("News Agent çalıştırılıyor...")
-    query: Optional[str] = state.get("query") # Sorgu state'den alınıyor
-    final_answer: str = "Haber veya genel bilgi sorgunuz işlenirken beklenmedik bir sorun oluştu." 
-    source_info = "News Agent (Web/Wikipedia)" # Cevap için varsayılan bilgi
+    logging.info("Running News Agent...")
+    query: Optional[str] = state.get("query")  # Query is fetched from the state
+    final_answer: str = "An unexpected error occurred while processing your news or general information query."
+    source_info = "News Agent (Web/Wikipedia)"  # Default source information for the response
 
-    # Eğer sorgu yoksa veya boşsa, hata mesajı döndürülüyor
+    # If there's no query or it's empty, return an error message
     if not query:
-        logging.error("News Agent: State içinde geçerli bir 'query' bulunamadı.")
-        final_answer = "Anlaşılamayan veya eksik bir sorgu aldım."
-        source_info += " (Hata: Eksik Sorgu)"
+        logging.error("News Agent: No valid 'query' found in the state.")
+        final_answer = "I received an unrecognized or incomplete query."
+        source_info += " (Error: Missing Query)"
         return {"answer": final_answer, "source": source_info}
 
-    logging.info(f"İşlenecek sorgu: '{query}'")
+    logging.info(f"Query to be processed: '{query}'")
 
     agent_executor = get_news_agent_executor()
 
-    logging.info(f"News Agent Executor çalıştırılıyor...")
-    
+    logging.info("Running News Agent Executor...")
+
     response = agent_executor.invoke({"input": query})
 
-    # Agent'ın nihai cevabı 'output' anahtarında bulunuyor
+    # The agent's final answer is found under the 'output' key
     final_answer = response.get("output")
     if not final_answer:
-        logging.warning("Agent Executor bir çıktı ('output') üretmedi.")
-        final_answer = "İsteğiniz işlendi ancak bir cevap üretilemedi. Lütfen farklı bir şekilde sormayı deneyin."
-        source_info += " (Agent Cevap Vermedi)"
+        logging.warning("Agent Executor did not produce an 'output'.")
+        final_answer = "Your request was processed but no answer was generated. Please try rephrasing your question."
+        source_info += " (Agent Did Not Respond)"
     else:
-        logging.info("News Agent Executor başarıyla tamamlandı.")
-        source_info += " (Agent Başarılı)"
+        logging.info("News Agent Executor completed successfully.")
+        source_info += " (Agent Successful)"
 
-    logging.info(f"News Agent tamamlandı. Cevap (ilk 100 karakter): '{final_answer[:100]}...'")
+    logging.info(f"News Agent completed. Response (first 100 characters): '{final_answer[:100]}...'")
     return {"answer": final_answer, "source": source_info}

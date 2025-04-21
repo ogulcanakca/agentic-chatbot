@@ -14,51 +14,51 @@ sys.path.append(str(project_root))
 
 from configs.app_config import MODEL_NAME
 
-# Model nesnesini basit cache mekanizmasıyla sakladığımız global değişkenimiz
+# Our global variable where we store the model object with a simple cache mechanism
 model: Optional[SentenceTransformer] = None
 
-# Modeli yüklemek için bir fonksiyon tanımlıyoruz
+# We define a function to load the model
 def get_embedding_model() -> SentenceTransformer:
 
     global model
     if model is None:
-        logging.info(f"'{MODEL_NAME}' modeli yükleniyor...")
+        logging.info(f"Loading model '{MODEL_NAME}'...")
         
-        # GPU varsa kullanıyoruz, yoksa CPU'dan devam ediyoruz. 
-        # CPU'da çalıştım süreç boyunca, ona rağmen hızlı çalışıyor sistem
+        # We use GPU if available, otherwise continue with CPU.
+        # The system works fast even though I worked on CPU throughout the process
         device = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
-        logging.info(f"Kullanılacak cihaz: {device}")
+        logging.info(f"Device to be used: {device}")
 
-        # Modeli yüklüyoruz
+        # We load the model
         model = SentenceTransformer(MODEL_NAME, device=device)
 
-        logging.info(f"'{MODEL_NAME}' modeli başarıyla yüklendi ({device}).")
+        logging.info(f"Model '{MODEL_NAME}' successfully loaded ({device}).")
         
     return model
 
-# Embedding üretimi için bir fonksiyon tanımlıyoruz
+# We define a function for embedding generation
 def generate_embeddings(texts: List[str], batch_size: int = 64) -> List[List[float]]:
     if not texts:
-        logging.warning("Embedding üretmek için boş metin listesi alındı.")
+        logging.warning("Empty text list received for embedding generation.")
         return []
 
     try:
         model = get_embedding_model()
-        logging.info(f"{len(texts)} adet metin için embedding üretiliyor (batch size: {batch_size})...")
+        logging.info(f"Generating embeddings for {len(texts)} texts (batch size: {batch_size})...")
 
-        # Modeli kullanarak embedding'leri üretiyoruz
+        # We generate embeddings using the model
         embeddings_np = model.encode(
             texts,
             batch_size=batch_size,
             show_progress_bar=True
         )
-        logging.info("Embedding üretimi tamamlandı.")
+        logging.info("Embedding generation completed.")
 
-        # JSON'da saklama ve kullanımı için NumPy array'lerini listeye çeviriyoruz
+        # We convert NumPy arrays to lists for storage and use in JSON
         embeddings_list = embeddings_np.tolist()
         return embeddings_list
     
-     # Hata durumunda boş liste döndürüyoruz
+     # We return an empty list in case of error
     except Exception as e:
-        logging.error(f"Embedding üretimi sırasında hata oluştu: {e}", exc_info=True)
+        logging.error(f"Error occurred during embedding generation: {e}", exc_info=True)
         return []
