@@ -136,10 +136,24 @@ if user_input := st.chat_input("Sorunuzu buraya yazın..."):
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    with st.spinner("Yanıt hazırlanıyor... Lütfen bekleyin..."):
+    with st.spinner("Yanıt hazırlanıyor..."):
         try:
             start_time = time.time()
-            graph_input = {"query": user_input}
+
+            # Geçmişi LangGraph'a uygun formata getir (örn. BaseMessage listesi)
+            # Bu kısım st.session_state.chat_history formatınıza göre ayarlanmalı
+            from langchain_core.messages import HumanMessage, AIMessage
+            formatted_history = []
+            for msg in st.session_state.chat_history[:-1]: # Son kullanıcı mesajı hariç
+                if msg["role"] == "user":
+                    formatted_history.append(HumanMessage(content=msg["content"]))
+                elif msg["role"] == "assistant":
+                    formatted_history.append(AIMessage(content=msg["content"]))
+
+            graph_input = {
+                "query": user_input,
+                "chat_history": formatted_history # Geçmişi ekle
+            }
             if st.session_state.get("new_upload_triggered"):
                 logging.info("Yeni yükleme işareti True. Agentic RAG'a doğrudan yönlendiriliyor.")
                 graph_input["route_directly_to_agentic_rag"] = True

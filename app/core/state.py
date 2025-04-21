@@ -1,5 +1,5 @@
 # app/core/state.py
-from typing import Optional, TypedDict, List
+from typing import Optional, TypedDict
 
 # AgentState tanımını buraya taşıdık
 class AgentState(TypedDict):
