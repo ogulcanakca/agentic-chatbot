@@ -3,13 +3,13 @@
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 # from langchain.memory import ConversationBufferMemory # Kaldırıldı
-# Araçları import et (kullandığınız son hale göre)
+
+# Araçları import et (güncellenmiş haliyle)
 from ..tools.destination_tools import (
-    search_city_info, 
-    get_weather_forecast, 
-    Google_Hotels_with_tavily, 
-    get_tomtom_map_url # Basit harita aracı varsayımı
-    # generate_destination_map_with_pois # VEYA POI'li harita aracı
+    search_city_info,
+    get_weather_forecast,
+    search_hotel_booking_links, # <-- DEĞİŞTİ
+    get_tomtom_map_url
 )
 from app.core.llm import get_llm
 import logging
@@ -17,48 +17,44 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s')
 
 
-# Sistem mesajı (içeriği önemli, history beklemiyor)
-DESTINATION_RESEARCH_AGENT_SYSTEM_MESSAGE = """Siz Destinasyon Araştırma Ajanısınız. Amacınız seyahat bilgilerini toplamak ve bunları Türkçe olarak net bir şekilde sunmaktır.
+# Sistem mesajı (güncellendi)
+DESTINATION_RESEARCH_AGENT_SYSTEM_MESSAGE = """You are the Destination Research Agent. Your goal is to gather travel information and present it clearly in Turkish.
 
-**Görevleriniz:**
-1. DESTINATION şehri için `search_city_info` fonksiyonunu kullanın.
-2. DESTINATION şehri ve tarihler için `get_weather_forecast` fonksiyonunu kullanın.
-3. DESTINATION şehri ve tarihler için `Google_Hotels_with_tavily` fonksiyonunu kullanın. Sınırlamalara dikkat edin.
-4. Harita URL'si almak için `city_name`=DESTINATION parametresiyle `get_tomtom_map_url` fonksiyonunu kullanın.
-   (Eğer POI map tool kullanıyorsanız: 4. Görev 1'deki metinden yerleri çıkarın. Destination ve places metniyle `generate_destination_map_with_pois` fonksiyonunu çağırın.)
+**Your Tasks:**
+1.  Use `search_city_info` for the DESTINATION city.
+2.  Use `get_weather_forecast` for the DESTINATION city and dates.
+3.  Use `search_hotel_booking_links` for the DESTINATION city and dates to find relevant booking site URLs. # <-- GÖREV GÜNCELLENDİ
+4.  Use `get_tomtom_map_url` with `city_name`=DESTINATION to get a map URL.
 
-**Çıktı Gereksinimleri:**
-- Sonuçları tek, kapsamlı bir Türkçe yanıtta birleştirin.
-- TAM OLARAK şu Türkçe başlıklarla yapılandırın: 'Şehir Bilgileri', 'Hava Durumu/Kıyafet Önerileri', 'Otel Seçenekleri', 'Harita Görünümü'.
-- ÇOK ÖNEMLİ: 'Harita Görünümü' başlığı altında map tool çıktısını ekleyin. Hata varsa, belirtin.
-- YALNIZCA Türkçe yanıt verin. Düşüncelerinizi dahil etmeyin.
+**Output Requirements:**
+- Combine results into a single, comprehensive response in Turkish.
+- Structure with EXACT Turkish headings: 'Şehir Bilgileri', 'Hava Durumu/Kıyafet Önerileri', 'Otel Seçenekleri', 'Harita Görünümü'.
+- Under 'Otel Seçenekleri', list the booking site links found by the tool. Do not claim to provide specific hotel details. # <-- ÇIKTI GEREKSİNİMİ GÜNCELLENDİ
+- CRITICAL: Include map tool output under 'Harita Görünümü'. If error, state it.
+- Respond ONLY in Turkish. Do not include thoughts. If a tool fails, note it politely and continue.
 """
 
 def create_destination_agent() -> AgentExecutor:
     """Creates the Destination Research Agent Executor without memory."""
     logging.debug("Destination Agent oluşturuluyor (hafızasız)...")
-    
-    # Prompt template'inden history placeholder'ını kaldır
+
     destination_prompt = ChatPromptTemplate.from_messages([
         ("system", DESTINATION_RESEARCH_AGENT_SYSTEM_MESSAGE),
         # MessagesPlaceholder(variable_name="history"), # <-- KALDIRILDI
-        ("human", "{input}"), 
+        ("human", "{input}"),
         MessagesPlaceholder(variable_name="agent_scratchpad"),
     ])
 
-    # Hafıza modülü oluşturma kaldırıldı
-    # destination_memory = ConversationBufferMemory(...)
-
-    # Kullanılacak araçlar (kullandığınız son hale göre güncelleyin)
+    # Kullanılacak araçlar (güncellendi)
     destination_tools = [
-        search_city_info, 
-        get_weather_forecast, 
-        Google_Hotels_with_tavily,
-        get_tomtom_map_url # VEYA generate_destination_map_with_pois
+        search_city_info,
+        get_weather_forecast,
+        search_hotel_booking_links, # <-- DEĞİŞTİ
+        get_tomtom_map_url
     ]
     logging.debug(f"Destination Agent için araçlar: {[tool.name for tool in destination_tools]}")
 
-    llm_instance = get_llm() 
+    llm_instance = get_llm()
     if not llm_instance:
         logging.error("Destination Agent için LLM oluşturulamadı!")
         raise ValueError("LLM could not be initialized for Destination Agent.")
@@ -69,15 +65,14 @@ def create_destination_agent() -> AgentExecutor:
         prompt=destination_prompt
     )
 
-    # Executor oluştururken memory argümanını kaldır
     destination_executor = AgentExecutor.from_agent_and_tools(
         agent=destination_agent_runnable,
         tools=destination_tools,
-        verbose=True, 
+        verbose=True,
         # memory=destination_memory, # <-- KALDIRILDI
-        handle_parsing_errors=True, 
-        # max_iterations=5 
+        handle_parsing_errors=True,
+        # max_iterations=5
     )
-    
+
     logging.debug("Destination Agent başarıyla oluşturuldu (hafızasız).")
     return destination_executor
