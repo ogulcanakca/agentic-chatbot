@@ -1,5 +1,4 @@
 .venv
-.env
 __pycache__/
 app/__pycache__/
 app/agents/__pycache__
