@@ -2,7 +2,6 @@
 
 FROM python:3.10-slim as base
 
-# Python'un logların anlık görünmesini engellememesi için bu ayarı yapıyoruz
 ENV PYTHONUNBUFFERED 1
 
 ENV PIP_NO_CACHE_DIR 1
@@ -18,7 +17,9 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
-COPY . .
+COPY ./app /app/app
+COPY ./configs /app/configs
+COPY ./assets /app/assets
 
 EXPOSE 8501
 

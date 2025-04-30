@@ -17,6 +17,7 @@ services:
       - processed_data:/app/data/processed
       - raw_data:/app/data/raw
       - hf_cache:/app/.cache/huggingface
+      - ./plans:/app/plans
     environment:
       - STREAMLIT_BROWSER_SERVER_ADDRESS=localhost
 volumes:

@@ -11,6 +11,9 @@ This project is a **supervisor-based multi-agent** AI chatbot designed to answer
 * **Agentic RAG (Document Querying):** Allows users to upload their own documents (PDF, TXT, DOCX, etc.) and ask questions about their content. This agent processes the uploaded document and generates answers using the RAG mechanism.
 * **Fallback:** Provides a standard response for queries outside the defined scopes.
 
+## Deficiencies
+* Agent Memory
+  
 ## Technologies Used
 
 * **Programming Language:** Python
