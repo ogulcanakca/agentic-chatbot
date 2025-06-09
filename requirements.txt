@@ -21,6 +21,5 @@ fpdf
 chromadb
 python-docx 
 
-unstructured "unstructured[local-inference]" 
 tiktoken
 pypdf
